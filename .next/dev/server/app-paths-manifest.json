@@ -1,9 +1,0 @@
-{
-  "/api/dashboard/route": "app/api/dashboard/route.js",
-  "/api/documents/route": "app/api/documents/route.js",
-  "/api/interview/sessions/route": "app/api/interview/sessions/route.js",
-  "/api/questions/route": "app/api/questions/route.js",
-  "/api/settings/model-config/route": "app/api/settings/model-config/route.js",
-  "/api/stories/route": "app/api/stories/route.js",
-  "/page": "app/page.js"
-}

@@ -1,0 +1,45 @@
+
+> react-example@0.0.0 dev
+> next dev --turbopack --port 3000
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.31.170:3000
+- Environments: .env.local, .env
+✓ Ready in 558ms
+Creating turbopack project { dir: 'E:\\cc_agent_demo\\jobcopilot', testMode: true }
+
+ GET / 200 in 391ms (next.js: 197ms, application-code: 195ms)
+ GET /api/health 200 in 71ms (next.js: 54ms, application-code: 17ms)
+ GET /api/health 200 in 6ms (next.js: 2ms, application-code: 4ms)
+ POST /api/settings/test-model 200 in 3.7s (next.js: 83ms, application-code: 3.6s)
+ POST /api/analysis 200 in 44s (next.js: 366ms, application-code: 44s)
+ POST /api/interview/message 200 in 6.9s (next.js: 39ms, application-code: 6.9s)
+ POST /api/interview/message 200 in 11.2s (next.js: 4ms, application-code: 11.2s)
+ POST /api/interview/message 200 in 9.3s (next.js: 4ms, application-code: 9.3s)
+ POST /api/interview/message 200 in 10.3s (next.js: 5ms, application-code: 10.3s)
+ POST /api/interview/message 200 in 8.7s (next.js: 6ms, application-code: 8.7s)
+ POST /api/interview/message 200 in 9.1s (next.js: 5ms, application-code: 9.1s)
+ POST /api/interview/review 200 in 26.5s (next.js: 47ms, application-code: 26.4s)
+ GET /api/interview/sessions 200 in 2.1s (next.js: 43ms, application-code: 2.0s)
+ POST /api/analysis 200 in 43s (next.js: 2ms, application-code: 43s)
+ POST /api/interview/message 200 in 6.2s (next.js: 3ms, application-code: 6.2s)
+ POST /api/interview/message 200 in 9.0s (next.js: 4ms, application-code: 9.0s)
+ POST /api/interview/message 200 in 3.1s (next.js: 3ms, application-code: 3.1s)
+ GET /api/settings/model-config 200 in 797ms (next.js: 39ms, application-code: 757ms)
+ POST /api/settings/test-model 200 in 1224ms (next.js: 2ms, application-code: 1222ms)
+ POST /api/analysis 200 in 49s (next.js: 4ms, application-code: 49s)
+ POST /api/interview/message 200 in 6.9s (next.js: 5ms, application-code: 6.9s)
+ POST /api/interview/message 200 in 11.8s (next.js: 4ms, application-code: 11.8s)
+ POST /api/interview/message 200 in 11.5s (next.js: 6ms, application-code: 11.5s)
+ POST /api/interview/message 200 in 3.4s (next.js: 4ms, application-code: 3.4s)
+ POST /api/interview/message 200 in 2.7s (next.js: 7ms, application-code: 2.7s)
+ POST /api/interview/message 200 in 2.8s (next.js: 4ms, application-code: 2.8s)
+ POST /api/interview/review 200 in 32.0s (next.js: 4ms, application-code: 32.0s)
+ GET /api/interview/sessions 200 in 4.0s (next.js: 7ms, application-code: 4.0s)
+ GET /api/settings/model-config 200 in 595ms (next.js: 5ms, application-code: 590ms)
+ GET /api/settings/model-config 200 in 533ms (next.js: 8ms, application-code: 525ms)
+ GET /api/interview/sessions 200 in 4.8s (next.js: 5ms, application-code: 4.8s)
+ GET /api/interview/sessions 200 in 1032ms (next.js: 4ms, application-code: 1028ms)
+ GET / 200 in 142ms (next.js: 6ms, application-code: 135ms)
+[?25h

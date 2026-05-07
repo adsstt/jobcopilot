@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interviewSessions InterviewSession[]
+  resumes           Resume[]
+  stories           Story[]
+  reviews           Review[]
+  modelConfigs      UserModelConfig[]
+}
+
+model UserModelConfig {
+  id              String   @id @default(cuid())
+  userId          String
+  provider        String
+  model           String
+  baseUrl         String?
+  apiKeyEncrypted String?
+  isDefault       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isDefault])
+  @@index([userId, updatedAt])
+}
+
+model Resume {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  rawText   String   @default("")
+  fileName  String?
+  mimeType  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interviewSessions InterviewSession[]
+
+  @@index([userId, updatedAt])
+}
+
+model InterviewSession {
+  id             String    @id @default(cuid())
+  userId         String
+  resumeId       String?
+  roleTrack      String
+  title          String
+  status         String    @default("analyzed")
+  resumeText     String    @default("")
+  jdText         String    @default("")
+  analysis       Json?
+  matchScore     Int?
+  overallScore   Int?
+  overallRating  String?
+  reviewSummary  String?
+  lastTestedSkill String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  completedAt    DateTime?
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume   Resume?            @relation(fields: [resumeId], references: [id], onDelete: SetNull)
+  messages InterviewMessage[]
+  review   Review?
+
+  @@index([userId, updatedAt])
+  @@index([userId, status])
+}
+
+model InterviewMessage {
+  id          String   @id @default(cuid())
+  sessionId   String
+  role        String
+  content     String
+  testedSkill String?
+  evaluation  Json?
+  score       Int?
+  createdAt   DateTime @default(now())
+
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  sessionId String   @unique
+  title     String
+  summary   String
+  score     Int?
+  rating    String?
+  strengths Json?
+  improvements Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
+model Story {
+  id              String   @id @default(cuid())
+  userId          String
+  title           String
+  sourceSessionId String?
+  content         String
+  tags            Json?
+  roleTracks      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}

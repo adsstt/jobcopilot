@@ -1,0 +1,8 @@
+{
+  "name": "JobCopilot",
+  "description": "AI-powered interview training tool for job seekers, focusing on role-based preparation.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": []
+}

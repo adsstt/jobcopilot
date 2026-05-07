@@ -1,118 +1,118 @@
 # JobCopilot
 
-JobCopilot is an AI interview practice app for job seekers. It helps users analyze a resume against a job description, run mock interview turns, review answer quality, and collect stories/questions for later practice.
+JobCopilot 是一个面向求职者的 AI 面试训练应用。它可以帮助用户基于简历和岗位 JD 做匹配分析，进行模拟面试，复盘回答质量，并沉淀面试故事库和题库。
 
-The current project is a Next.js App Router app with server-side API Route Handlers, Prisma persistence on Supabase Postgres, and OpenAI-compatible model providers such as DeepSeek.
+当前项目采用 Next.js App Router 架构，后端能力通过 Next.js Route Handlers 提供，数据持久化使用 Prisma + Supabase Postgres，模型调用支持 DeepSeek 等 OpenAI 兼容服务。
 
-## Features
+## 功能说明
 
-- Resume and JD analysis with structured match feedback.
-- Streaming mock interview questions and answer evaluation.
-- Interview session persistence, review summaries, question bank, story library, and dashboard views.
-- User model configuration with encrypted API keys.
-- Local mock AI provider for development without paid model calls.
+- 简历与 JD 匹配分析，输出结构化岗位适配反馈。
+- 流式模拟面试，支持回答评价和下一题生成。
+- 面试会话持久化、复盘总结、题库、故事库和仪表盘视图。
+- 用户模型配置管理，支持加密保存模型 API Key。
+- 本地 mock AI provider，方便无真实模型 Key 时开发调试。
 
-## Tech Stack
+## 技术栈
 
-- Next.js App Router, React, TypeScript
+- Next.js App Router、React、TypeScript
 - Tailwind CSS v4
 - Prisma ORM
 - Supabase Postgres
-- OpenAI-compatible AI providers: DeepSeek, OpenAI, Qwen, Kimi, custom
-- Vercel deployment target
+- OpenAI 兼容模型服务：DeepSeek、OpenAI、Qwen、Kimi、自定义服务
+- Vercel 部署
 
-## Local Development
+## 本地运行
 
-1. Install dependencies:
+1. 安装依赖：
 
 ```bash
 npm install
 ```
 
-2. Copy the environment template:
+2. 复制环境变量模板：
 
 ```bash
 cp .env.example .env.local
 ```
 
-3. Configure at least `DATABASE_URL`, `MODEL_CONFIG_SECRET`, and the AI provider values you need. For local UI testing, `AI_PROVIDER="mock"` is enough after the database is reachable.
+3. 至少配置 `DATABASE_URL`、`MODEL_CONFIG_SECRET` 和需要使用的 AI provider。仅本地调试 UI 时，可以先使用 `AI_PROVIDER="mock"`，但数据库仍需可连接。
 
-4. Generate the Prisma client and apply the schema:
+4. 生成 Prisma Client 并同步数据库结构：
 
 ```bash
 npm run db:generate
 npm run db:push
 ```
 
-5. Start the app:
+5. 启动开发服务：
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+打开 `http://localhost:3000` 访问项目。
 
-## Environment Variables
+## 环境变量
 
-Required for production:
+生产环境必填：
 
-- `DATABASE_URL`: Supabase Postgres connection string used by Prisma. On Vercel, prefer the Supabase pooled connection string on port `6543` to reduce serverless connection pressure.
-- `NEXT_PUBLIC_SUPABASE_URL`: Supabase project URL. Public browser-safe value.
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase anon key. Public browser-safe value.
-- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key. Server-only secret; never expose it to client code.
-- `MODEL_CONFIG_SECRET`: Long, stable secret used to encrypt saved model API keys.
-- `AI_PROVIDER`: Default model provider. Use `deepseek` for the default production DeepSeek setup.
-- Default AI provider key: set either `AI_API_KEY` or the provider-specific key such as `DEEPSEEK_API_KEY`.
+- `DATABASE_URL`：Prisma 使用的 Supabase Postgres 连接字符串。部署到 Vercel 时建议使用 Supabase 连接池地址，通常为 `6543` 端口，以降低 Serverless 连接数压力。
+- `NEXT_PUBLIC_SUPABASE_URL`：Supabase 项目 URL。该变量可暴露给浏览器。
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`：Supabase anon key。该变量可暴露给浏览器。
+- `SUPABASE_SERVICE_ROLE_KEY`：Supabase service role key。仅服务端使用，不能暴露给前端。
+- `MODEL_CONFIG_SECRET`：用于加密用户保存的模型 API Key。生产环境必须设置为足够长且稳定的随机字符串。
+- `AI_PROVIDER`：默认模型 provider。生产默认使用 DeepSeek 时设置为 `deepseek`。
+- 默认 AI provider key：设置 `AI_API_KEY`，或设置对应 provider 的专用 Key，例如 `DEEPSEEK_API_KEY`。
 
-Optional:
+可选：
 
-- `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `QWEN_API_KEY`, `KIMI_API_KEY`
+- `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`QWEN_API_KEY`、`KIMI_API_KEY`
 - `AI_MODEL`
 - `AI_BASE_URL`
 - `MAX_UPLOAD_BYTES`
 - `APP_URL`
-- `DEFAULT_USER_ID`, `DEFAULT_USER_EMAIL`, `DEFAULT_USER_NAME`
-- `API_PORT`, `DEV_CORS_ORIGIN` for the legacy local Express dev server only
+- `DEFAULT_USER_ID`、`DEFAULT_USER_EMAIL`、`DEFAULT_USER_NAME`
+- `API_PORT`、`DEV_CORS_ORIGIN`，仅旧版本地 Express 开发服务使用，Vercel 不需要
 
-## Vercel Compatibility Notes
+## Vercel 兼容性说明
 
-- All `src/app/api/**/route.ts` files explicitly use `runtime = "nodejs"`. This is required because the server code uses Prisma, Node crypto, file parsing, and streamed fetch handling that are better suited to Node Runtime than Edge Runtime.
-- Streaming interview responses use Web `ReadableStream` and newline-delimited JSON from a Node Route Handler. This is compatible with Vercel Node Serverless functions; do not move these routes to Edge while Prisma and Node crypto are in the same request path.
-- Prisma Client is generated in `postinstall`, so Vercel installs dependencies and then runs `prisma generate` before `next build`.
-- Serverless deployments can create many short-lived database connections. Use Supabase connection pooling for `DATABASE_URL`, keep the singleton Prisma client pattern in `server/db/client.ts`, and run migrations separately from the Vercel runtime.
-- The production build command is `npm run build`; the start command for local production testing is `npm run start`. Vercel does not need a custom start command for Next.js deployments.
+- 所有 `src/app/api/**/route.ts` 文件都显式设置了 `runtime = "nodejs"`。这是必要的，因为服务端代码使用了 Prisma、Node crypto、文件解析和流式 fetch 处理，更适合运行在 Node Runtime，而不是 Edge Runtime。
+- 模拟面试的流式响应使用 Web `ReadableStream` 和 NDJSON，由 Node Route Handler 输出。该方案兼容 Vercel Node Serverless Functions；在 Prisma 和 Node crypto 仍处于同一请求链路时，不建议迁移到 Edge Runtime。
+- `postinstall` 会执行 `prisma generate`，因此 Vercel 安装依赖后会在 `next build` 前生成 Prisma Client。
+- Serverless 环境可能产生较多短生命周期数据库连接。生产 `DATABASE_URL` 建议使用 Supabase connection pooling，同时保留 `server/db/client.ts` 中的 Prisma 单例模式，并将数据库迁移放在 Vercel runtime 之外执行。
+- 生产构建命令为 `npm run build`；本地生产预览命令为 `npm run start`。Vercel 部署 Next.js 项目时不需要自定义 start command。
 
-## Deploy To Vercel
+## 部署到 Vercel
 
-1. Push the project to GitHub.
-2. Import the repository in Vercel.
-3. Keep the framework preset as Next.js.
-4. Set the build command to `npm run build` or leave the Vercel default for Next.js.
-5. Add all required environment variables in Vercel Project Settings.
-6. Run Prisma migrations against Supabase before or during a controlled release step:
+1. 将项目推送到 GitHub。
+2. 在 Vercel 中导入该仓库。
+3. Framework Preset 保持为 Next.js。
+4. Build Command 使用 `npm run build`，也可以保留 Vercel 对 Next.js 的默认配置。
+5. 在 Vercel Project Settings 中配置所有生产必填环境变量。
+6. 在部署前或受控发布步骤中，对 Supabase 数据库执行 Prisma 迁移：
 
 ```bash
 npx prisma migrate deploy
 ```
 
-7. Deploy the project.
-8. After deployment, open `/api/health` and confirm it returns `ok: true`.
+7. 部署项目。
+8. 部署完成后访问 `/api/health`，确认返回 `ok: true`。
 
-## Scripts
+## 常用脚本
 
-- `npm run dev`: start local Next.js development server.
-- `npm run lint`: run TypeScript validation.
-- `npm run build`: create a production Next.js build.
-- `npm run start`: run the production build locally.
-- `npm run db:generate`: generate Prisma Client.
-- `npm run db:migrate`: create/apply local development migrations.
-- `npm run db:push`: push schema during local prototyping.
+- `npm run dev`：启动本地 Next.js 开发服务。
+- `npm run lint`：执行 TypeScript 校验。
+- `npm run build`：执行生产构建。
+- `npm run start`：本地运行生产构建结果。
+- `npm run db:generate`：生成 Prisma Client。
+- `npm run db:migrate`：创建并应用本地开发迁移。
+- `npm run db:push`：本地原型阶段同步 Prisma schema。
 
-## Deployment Checklist
+## 部署检查清单
 
-- `npm run lint` passes.
-- `npm run build` passes.
-- Vercel environment variables are configured.
-- `DATABASE_URL` uses Supabase pooling for serverless runtime.
-- Prisma migrations have been applied with `prisma migrate deploy`.
-- API routes remain on Node Runtime.
+- `npm run lint` 通过。
+- `npm run build` 通过。
+- Vercel 环境变量已配置完整。
+- `DATABASE_URL` 在 Serverless runtime 中使用 Supabase 连接池地址。
+- 已执行 `prisma migrate deploy` 应用数据库迁移。
+- API Routes 保持 Node Runtime。

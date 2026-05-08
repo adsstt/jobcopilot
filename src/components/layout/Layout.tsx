@@ -1,15 +1,22 @@
 import React from "react";
 import { BookOpenText, FileStack, Home, Library, ListChecks, Mic, Settings, Sparkles, Target } from "lucide-react";
-import { ViewState } from "@/App";
+import type { ViewState } from "@/App";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 import { cn } from "@/lib/utils";
+import type { CurrentUser } from "../../../server/db/users";
 
 interface LayoutProps {
   currentView: ViewState;
   onViewChange: (view: ViewState) => void;
+  currentUser: CurrentUser;
   children: React.ReactNode;
 }
 
-export function Layout({ currentView, onViewChange, children }: LayoutProps) {
+export function Layout({ currentView, onViewChange, currentUser, children }: LayoutProps) {
+  const displayName = currentUser.name || currentUser.email?.split("@")[0] || "User";
+  const emailLabel = currentUser.email || "已登录用户";
+  const avatarLabel = displayName.slice(0, 1).toUpperCase();
+
   const navItems = [
     { id: "dashboard", label: "首页", icon: Home },
     { id: "tracks", label: "岗位方向", icon: Target },
@@ -23,13 +30,12 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
 
   return (
     <div className="flex h-screen w-full max-w-full flex-col overflow-x-hidden bg-slate-50 font-sans md:flex-row">
-      {/* Desktop Sidebar */}
-      <aside className="hidden w-72 flex-col border-r border-slate-200 bg-white px-6 py-8 md:flex max-h-screen">
+      <aside className="hidden max-h-screen w-72 flex-col border-r border-slate-200 bg-white px-6 py-8 md:flex">
         <div className="flex items-center gap-2 px-2 pb-10">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 text-white">
             <Sparkles size={20} />
           </div>
-          <span className="text-xl font-bold tracking-tight text-slate-900 font-serif italic">JobCopilot</span>
+          <span className="font-serif text-xl font-bold italic tracking-tight text-slate-900">JobCopilot</span>
         </div>
 
         <nav className="flex flex-col gap-2">
@@ -53,40 +59,40 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
         <div className="mt-auto px-2">
           <div className="mb-4 rounded-3xl border border-indigo-100 bg-indigo-50 p-4 text-indigo-950">
             <div className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-500">Next drill</div>
-            <div className="mt-2 text-sm font-bold">技术岗 · 系统设计追问</div>
+            <div className="mt-2 text-sm font-bold">技术面 · 系统设计追问</div>
             <div className="mt-1 text-xs leading-relaxed text-indigo-700">预计 5 分钟，补强业务指标表达。</div>
           </div>
-          <div className="flex items-center gap-3 rounded-3xl bg-slate-100 p-3">
-            <img
-              src="https://i.pravatar.cc/100?img=33"
-              alt="User"
-              className="h-10 w-10 rounded-full bg-slate-300"
-            />
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold">George</span>
-              <span className="text-xs text-slate-500">免费版</span>
+
+          <div className="rounded-3xl bg-slate-100 p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+                {avatarLabel}
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-slate-900">{displayName}</div>
+                <div className="truncate text-xs text-slate-500">{emailLabel}</div>
+              </div>
             </div>
+            <SignOutButton />
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="absolute inset-0 bg-dotted-pattern pointer-events-none opacity-50 z-0"></div>
+      <main className="relative min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="pointer-events-none absolute inset-0 z-0 bg-dotted-pattern opacity-50" />
         <div className="relative z-10 mx-auto w-full max-w-5xl px-4 py-6 pb-32 sm:p-6 sm:pb-32 md:p-12">
           {children}
         </div>
       </main>
 
-      {/* Mobile Bottom Nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex max-w-full items-center gap-1 overflow-x-auto overscroll-x-contain border-t border-slate-200 bg-white/85 pb-safe px-3 pt-2 backdrop-blur-xl md:hidden min-h-20 rounded-t-3xl shadow-xl scrollbar-hide">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex min-h-20 max-w-full items-center gap-1 overflow-x-auto overscroll-x-contain rounded-t-3xl border-t border-slate-200 bg-white/85 px-3 pb-safe pt-2 shadow-xl backdrop-blur-xl scrollbar-hide md:hidden">
         {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
             className={cn(
               "flex min-w-[58px] shrink-0 flex-col items-center justify-center gap-1 rounded-2xl p-2 transition-all duration-200",
-              currentView === item.id ? "text-indigo-600 scale-110" : "text-slate-400"
+              currentView === item.id ? "scale-110 text-indigo-600" : "text-slate-400"
             )}
           >
             <item.icon size={24} className={currentView === item.id ? "fill-indigo-50" : ""} />

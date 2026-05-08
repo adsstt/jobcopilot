@@ -1,16 +1,27 @@
 import { NextResponse } from "next/server";
+import { buildApiErrorResponse, createRequestId } from "../../../../server/apiErrors";
 import { getCurrentUser } from "../../../../server/auth/getCurrentUser";
 import { getDashboardData } from "../../../../server/db/dashboard";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+const route = "/api/dashboard";
+
+export async function GET(request: Request) {
+  const requestId = createRequestId(request);
+
   try {
     const user = await getCurrentUser();
     const dashboard = await getDashboardData(user.id);
-    return NextResponse.json({ dashboard });
+    return NextResponse.json({ dashboard }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return buildApiErrorResponse({
+      error,
+      route,
+      requestId,
+      safeMessage: "当前数据加载失败，请稍后重试",
+      errorCode: "DASHBOARD_LOAD_FAILED",
+      status: 500,
+    });
   }
 }

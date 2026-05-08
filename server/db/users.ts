@@ -1,3 +1,4 @@
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { prisma } from "./client";
 
 export interface CurrentUser {
@@ -6,10 +7,10 @@ export interface CurrentUser {
   name: string | null;
 }
 
-export async function ensureDefaultUser(): Promise<CurrentUser> {
-  const id = process.env.DEFAULT_USER_ID || "demo-user";
-  const email = process.env.DEFAULT_USER_EMAIL || "demo@jobcopilot.local";
-  const name = process.env.DEFAULT_USER_NAME || "George";
+export async function upsertUserFromSupabase(authUser: SupabaseUser): Promise<CurrentUser> {
+  const id = authUser.id;
+  const email = authUser.email ?? null;
+  const name = deriveUserName(authUser);
 
   return prisma.user.upsert({
     where: { id },
@@ -17,4 +18,15 @@ export async function ensureDefaultUser(): Promise<CurrentUser> {
     update: { email, name },
     select: { id: true, email: true, name: true },
   });
+}
+
+function deriveUserName(authUser: SupabaseUser) {
+  const metadataName =
+    typeof authUser.user_metadata?.name === "string" && authUser.user_metadata.name.trim()
+      ? authUser.user_metadata.name.trim()
+      : null;
+
+  if (metadataName) return metadataName;
+  if (authUser.email?.includes("@")) return authUser.email.split("@")[0];
+  return authUser.email ?? "User";
 }

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "../../../../../server/auth/getCurrentUser";
-import { providerDefaults, normalizeProvider } from "../../../../../server/db/modelConfigs";
-import { getDecryptedDefaultModelConfig } from "../../../../../server/db/modelConfigs";
+import { buildApiErrorResponse, createRequestId } from "../../../../../server/apiErrors";
 import { testChatCompletion } from "../../../../../server/ai/providers";
+import { getCurrentUser } from "../../../../../server/auth/getCurrentUser";
+import { getDecryptedDefaultModelConfig, normalizeProvider, providerDefaults } from "../../../../../server/db/modelConfigs";
 
 export const runtime = "nodejs";
 
+const route = "/api/settings/test-model";
+
 export async function POST(request: NextRequest) {
+  const requestId = createRequestId(request);
+
   try {
     const body = await request.json().catch(() => ({}));
     const savedConfig = body.apiKey ? null : await getSavedConfig();
@@ -17,15 +21,47 @@ export async function POST(request: NextRequest) {
     const apiKey = String(body.apiKey || savedConfig?.apiKey || "").trim();
 
     if (provider === "mock") {
-      return NextResponse.json({ ok: true, message: "Mock provider is available." });
+      return NextResponse.json({ ok: true, message: "Mock provider is available." }, { headers: { "x-request-id": requestId } });
     }
 
     if (!apiKey) {
-      return NextResponse.json({ ok: false, error: "API Key is required to test this provider." }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            requestId,
+            errorCode: "MODEL_API_KEY_REQUIRED",
+            safeMessage: "AI 生成失败，请检查模型配置或稍后再试",
+            ...(process.env.NODE_ENV === "development"
+              ? {
+                  route,
+                  status: 400,
+                }
+              : {}),
+          },
+        },
+        { status: 400, headers: { "x-request-id": requestId } }
+      );
     }
 
     if (provider === "custom" && !baseUrl) {
-      return NextResponse.json({ ok: false, error: "Base URL is required for custom providers." }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            requestId,
+            errorCode: "MODEL_BASE_URL_REQUIRED",
+            safeMessage: "AI 生成失败，请检查模型配置或稍后再试",
+            ...(process.env.NODE_ENV === "development"
+              ? {
+                  route,
+                  status: 400,
+                }
+              : {}),
+          },
+        },
+        { status: 400, headers: { "x-request-id": requestId } }
+      );
     }
 
     await testChatCompletion({
@@ -35,10 +71,16 @@ export async function POST(request: NextRequest) {
       apiKey,
     });
 
-    return NextResponse.json({ ok: true, message: "Model connection succeeded." });
+    return NextResponse.json({ ok: true, message: "Model connection succeeded." }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+    return buildApiErrorResponse({
+      error,
+      route,
+      requestId,
+      safeMessage: "AI 生成失败，请检查模型配置或稍后再试",
+      errorCode: "MODEL_TEST_FAILED",
+      status: 400,
+    });
   }
 }
 

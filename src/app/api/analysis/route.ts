@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildApiErrorResponse, createRequestId } from "../../../../server/apiErrors";
 import { getCurrentUser } from "../../../../server/auth/getCurrentUser";
 import { createSessionWithAnalysis } from "../../../../server/db/aiSessions";
 import { parseFileBuffer } from "../../../../server/parsers/documentParser";
@@ -6,9 +7,14 @@ import { createAnalysis } from "../../../../server/services/analysis";
 
 export const runtime = "nodejs";
 
+const route = "/api/analysis";
+
 export async function POST(request: NextRequest) {
+  const requestId = createRequestId(request);
+
   try {
     const contentType = request.headers.get("content-type") || "";
+    const user = await getCurrentUser();
 
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
@@ -28,7 +34,7 @@ export async function POST(request: NextRequest) {
         resumeText: mergedResumeText,
         jdText: mergedJdText,
       });
-      const user = await getCurrentUser();
+
       const session = await createSessionWithAnalysis({
         userId: user.id,
         roleTrack: result.roleTrack,
@@ -38,12 +44,11 @@ export async function POST(request: NextRequest) {
         analysis: result,
       });
 
-      return NextResponse.json({ ...result, sessionId: session.id });
+      return NextResponse.json({ ...result, sessionId: session.id }, { headers: { "x-request-id": requestId } });
     }
 
     const body = await request.json().catch(() => ({}));
     const result = await createAnalysis(body);
-    const user = await getCurrentUser();
     const session = await createSessionWithAnalysis({
       userId: user.id,
       roleTrack: result.roleTrack,
@@ -51,10 +56,17 @@ export async function POST(request: NextRequest) {
       jdText: body.jdText || "",
       analysis: result,
     });
-    return NextResponse.json({ ...result, sessionId: session.id });
+
+    return NextResponse.json({ ...result, sessionId: session.id }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return buildApiErrorResponse({
+      error,
+      route,
+      requestId,
+      safeMessage: "AI 生成失败，请检查模型配置或稍后再试",
+      errorCode: "ANALYSIS_FAILED",
+      status: 500,
+    });
   }
 }
 

@@ -1,20 +1,24 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Button, Card } from "@/components/ui";
-import { ArrowUpRight, BarChart3, Briefcase, BriefcaseBusiness, CheckCircle2, Clock3, Flame, PenTool, Sparkles } from "lucide-react";
 import * as motion from "motion/react-client";
-import { cn } from "@/lib/utils";
+import { ArrowUpRight, BarChart3, Briefcase, BriefcaseBusiness, CheckCircle2, Clock3, Flame, PenTool, Sparkles } from "lucide-react";
+import { Button, Card } from "@/components/ui";
 import { requestDashboardData, type DashboardData } from "@/lib/api";
 import { roleTracks, toneClasses } from "@/lib/mockData";
+import { cn } from "@/lib/utils";
+import type { CurrentUser } from "../../server/db/users";
 
 interface DashboardProps {
   onStartInterview: () => void;
+  currentUser: CurrentUser;
 }
 
-export function Dashboard({ onStartInterview }: DashboardProps) {
+export function Dashboard({ onStartInterview, currentUser }: DashboardProps) {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const displayName = currentUser.name || currentUser.email?.split("@")[0] || "User";
 
   useEffect(() => {
     let active = true;
+
     requestDashboardData()
       .then((data) => {
         if (active) setDashboard(data.dashboard);
@@ -45,7 +49,7 @@ export function Dashboard({ onStartInterview }: DashboardProps) {
       {
         label: "沉淀故事",
         value: String(dashboard?.stats.storyCount ?? 0),
-        helper: dashboard?.stats.storyCount ? "来自 Story 表" : "待沉淀",
+        helper: dashboard?.stats.storyCount ? "来自 Story 数据" : "等待沉淀",
         icon: PenTool,
       },
     ],
@@ -65,10 +69,12 @@ export function Dashboard({ onStartInterview }: DashboardProps) {
     <div className="flex flex-col gap-10">
       <div className="flex items-center justify-between md:hidden">
         <div className="flex items-center gap-3">
-          <img src="https://i.pravatar.cc/100?img=33" alt="George" className="h-12 w-12 rounded-full" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-base font-bold text-indigo-700">
+            {displayName.slice(0, 1).toUpperCase()}
+          </div>
           <div className="flex flex-col">
             <span className="text-sm text-slate-500">你好</span>
-            <span className="text-lg font-bold">George</span>
+            <span className="text-lg font-bold">{displayName}</span>
           </div>
         </div>
         <button className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-100 bg-white shadow-sm">
@@ -79,7 +85,8 @@ export function Dashboard({ onStartInterview }: DashboardProps) {
       <header className="flex flex-col gap-2">
         <span className="text-sm font-semibold uppercase tracking-wider text-indigo-600 md:hidden">训练方向</span>
         <h1 className="font-serif text-5xl font-medium italic tracking-tight text-slate-900 md:text-6xl">
-          你好 George<br />
+          你好 {displayName}
+          <br />
           <span className="text-4xl not-italic md:text-5xl">准备好开始训练了吗？</span>
         </h1>
       </header>
@@ -108,7 +115,7 @@ export function Dashboard({ onStartInterview }: DashboardProps) {
           </div>
           <div className="relative z-10 flex max-w-lg flex-col gap-4">
             <h2 className="text-3xl font-semibold">开始新的模拟面试</h2>
-            <p className="text-lg text-indigo-100">选择岗位方向，上传简历和 JD，获取量身定制的面试痛点分析和预测追问。</p>
+            <p className="text-lg text-indigo-100">选择岗位方向，上传简历和 JD，获取更贴近真实准备场景的面试分析与追问。</p>
             <Button size="lg" className="mt-4 self-start bg-white text-slate-900 shadow-xl hover:bg-slate-100" onClick={onStartInterview}>
               创建练习
             </Button>
@@ -178,7 +185,7 @@ export function Dashboard({ onStartInterview }: DashboardProps) {
               </div>
             </div>
           ) : (
-            <div className="text-sm font-semibold text-slate-500">暂无最近练习。完成一次面试复盘后，这里会展示真实记录。</div>
+            <div className="text-sm font-semibold text-slate-500">暂无最近练习。完成一次面试复盘后，这里会显示真实记录。</div>
           )}
         </Card>
       </section>
@@ -189,17 +196,19 @@ export function Dashboard({ onStartInterview }: DashboardProps) {
             <Flame size={18} /> 今日 5 分钟快练
           </div>
           <h3 className="mt-3 text-2xl font-bold text-slate-950">从最近复盘里挑一个薄弱点，补齐 STAR 结构和量化结果。</h3>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">题库真实化后，这里会自动从 Review.weaknesses 和 suggestedQuestions 里推荐专项题。</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">题库稳定后，这里会基于复盘结果和建议问题自动推荐专项训练题。</p>
           <Button variant="secondary" className="mt-5">
             开始快练
           </Button>
         </Card>
+
         <Card className="rounded-[28px] border-indigo-100 bg-indigo-50/60 p-6">
           <div className="text-sm font-bold text-indigo-600">故事库提醒</div>
           <div className="mt-2 text-3xl font-bold text-slate-950">{dashboard?.stats.storyCount ?? 0} 条</div>
-          <p className="mt-2 text-sm leading-relaxed text-indigo-900/70">当前来自真实 Story 表。后续可把高分复盘回答一键沉淀为 STAR 故事。</p>
+          <p className="mt-2 text-sm leading-relaxed text-indigo-900/70">当前数量来自真实 Story 数据。后续可以把高分复盘回答一键沉淀为 STAR 故事。</p>
           <button className="mt-5 flex items-center gap-1 text-sm font-bold text-indigo-700">
-            整理故事库 <ArrowUpRight size={15} />
+            整理故事库
+            <ArrowUpRight size={15} />
           </button>
         </Card>
       </section>

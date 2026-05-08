@@ -1,25 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import { buildApiErrorResponse, createRequestId, createStreamErrorEvent } from "../../../../../server/apiErrors";
 import { getCurrentUser } from "../../../../../server/auth/getCurrentUser";
 import { getSessionTurns, saveAnswerAndAiResponse, saveInitialAiQuestion } from "../../../../../server/db/aiSessions";
 import { createInterviewTurn, createInterviewTurnStream } from "../../../../../server/services/interview";
 
 export const runtime = "nodejs";
 
+const route = "/api/interview/message";
+
 export async function POST(request: NextRequest) {
+  const requestId = createRequestId(request);
+
   try {
     const body = await request.json().catch(() => ({}));
     const user = await getCurrentUser();
     const interviewBody = await withPersistedHistory(body, user.id);
 
     if (interviewBody.stream) {
-      return createStreamingResponse(interviewBody, user.id);
+      return createStreamingResponse(interviewBody, user.id, requestId);
     }
 
     const result = await createInterviewTurn(interviewBody);
     const persistenceInput = {
       userId: user.id,
       sessionId: interviewBody.sessionId,
-      roleTrack: interviewBody.roleTrack || interviewBody.analysis?.roleTrack || result.testedSkill || "技术岗",
+      roleTrack: interviewBody.roleTrack || interviewBody.analysis?.roleTrack || result.testedSkill || "技术面",
       resumeText: interviewBody.resumeText || "",
       jdText: interviewBody.jdText || "",
       analysis: interviewBody.analysis,
@@ -32,14 +37,20 @@ export async function POST(request: NextRequest) {
       ? await saveAnswerAndAiResponse({ ...persistenceInput, answer: interviewBody.answer })
       : await saveInitialAiQuestion(persistenceInput);
 
-    return NextResponse.json({ ...result, sessionId: saved.sessionId });
+    return NextResponse.json({ ...result, sessionId: saved.sessionId }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return buildApiErrorResponse({
+      error,
+      route,
+      requestId,
+      safeMessage: "AI 生成失败，请检查模型配置或稍后再试",
+      errorCode: "INTERVIEW_MESSAGE_FAILED",
+      status: 500,
+    });
   }
 }
 
-function createStreamingResponse(body: any, userId: string) {
+function createStreamingResponse(body: any, userId: string, requestId: string) {
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -58,7 +69,7 @@ function createStreamingResponse(body: any, userId: string) {
         const persistenceInput = {
           userId,
           sessionId: body.sessionId,
-          roleTrack: body.roleTrack || body.analysis?.roleTrack || result.testedSkill || "技术岗",
+          roleTrack: body.roleTrack || body.analysis?.roleTrack || result.testedSkill || "技术面",
           resumeText: body.resumeText || "",
           jdText: body.jdText || "",
           analysis: body.analysis,
@@ -78,8 +89,16 @@ function createStreamingResponse(body: any, userId: string) {
         write({ type: "done", result: { ...result, sessionId: saved.sessionId } });
         controller.close();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
-        write({ type: "error", error: message });
+        write(
+          createStreamErrorEvent({
+            error,
+            route,
+            requestId,
+            safeMessage: "AI 生成失败，请检查模型配置或稍后再试",
+            errorCode: "INTERVIEW_STREAM_FAILED",
+            status: 500,
+          })
+        );
         controller.close();
       }
     },
@@ -90,6 +109,7 @@ function createStreamingResponse(body: any, userId: string) {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "x-request-id": requestId,
     },
   });
 }

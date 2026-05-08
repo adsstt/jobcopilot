@@ -1,3 +1,7 @@
+import { normalizeResponseError } from "./appErrors";
+
+export type InterviewType = "HR面" | "业务面" | "技术面" | "终面";
+
 export interface MatchAnalysis {
   sessionId?: string;
   matchScore: number;
@@ -27,7 +31,7 @@ export interface InterviewMessageResponse {
   sessionId?: string;
   currentStage?: "opening" | "formal" | "closing" | "review";
   shouldMoveToNextStage?: boolean;
-  interviewType?: "HR面" | "业务面" | "技术面" | "终面";
+  interviewType?: InterviewType;
   feedback?: string;
   improvement?: string;
   improvedAnswer?: string;
@@ -55,7 +59,7 @@ export interface AnalysisInput {
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error || `Request failed with ${response.status}`);
+    throw normalizeResponseError(data?.error, `Request failed with ${response.status}`);
   }
   return data as T;
 }
@@ -92,7 +96,7 @@ export async function requestAnalysis(input: AnalysisInput) {
 
 export async function requestInterviewMessage(input: {
   sessionId?: string;
-  interviewType?: "HR面" | "业务面" | "技术面" | "终面";
+  interviewType?: InterviewType;
   roleTrack: string;
   resumeText: string;
   jdText: string;
@@ -112,7 +116,7 @@ export async function requestInterviewMessage(input: {
 export async function requestInterviewMessageStream(
   input: {
     sessionId?: string;
-    interviewType?: "HR面" | "业务面" | "技术面" | "终面";
+    interviewType?: InterviewType;
     roleTrack: string;
     resumeText: string;
     jdText: string;
@@ -133,7 +137,8 @@ export async function requestInterviewMessageStream(
   });
 
   if (!response.ok || !response.body) {
-    throw new Error(`Stream request failed with ${response.status}`);
+    const data = await response.json().catch(() => ({}));
+    throw normalizeResponseError(data?.error, `Stream request failed with ${response.status}`);
   }
 
   const reader = response.body.getReader();
@@ -151,16 +156,27 @@ export async function requestInterviewMessageStream(
     for (const line of lines) {
       if (!line.trim()) continue;
       const event = JSON.parse(line);
+
       if (event.type === "delta" && typeof event.text === "string") {
         handlers.onDelta(event.text);
       }
+
       if (event.type === "done") {
         handlers.onDone(event.result);
       }
+
       if (event.type === "error") {
-        handlers.onError?.(event.error || "流式输出失败");
-        throw new Error(event.error || "流式输出失败");
+        const normalized = normalizeResponseError(event.error, "AI 生成失败，请检查模型配置或稍后再试");
+        handlers.onError?.(normalized.safeMessage);
+        throw normalized;
       }
+    }
+  }
+
+  if (buffer.trim()) {
+    const event = JSON.parse(buffer);
+    if (event.type === "error") {
+      throw normalizeResponseError(event.error, "AI 生成失败，请检查模型配置或稍后再试");
     }
   }
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { badRequest, buildApiErrorResponse, createRequestId } from "../../../../server/apiErrors";
 import { getCurrentUser } from "../../../../server/auth/getCurrentUser";
-import { createStory, generateStoriesFromUserData, listStories, updateStory } from "../../../../server/db/stories";
+import { createStory, deleteStory, generateStoriesFromUserData, listStories, updateStory } from "../../../../server/db/stories";
 
 export const runtime = "nodejs";
 
@@ -71,6 +71,30 @@ export async function PATCH(request: NextRequest) {
       requestId,
       safeMessage: "当前保存失败，请稍后重试",
       errorCode: "STORY_UPDATE_FAILED",
+      status: 400,
+    });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const requestId = createRequestId(request);
+
+  try {
+    const user = await getCurrentUser();
+    const id = request.nextUrl.searchParams.get("id");
+    if (!id) {
+      throw badRequest("Story id is required.", "请选择要删除的故事", "STORY_ID_REQUIRED");
+    }
+
+    await deleteStory(user.id, id);
+    return NextResponse.json({ ok: true }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    return buildApiErrorResponse({
+      error,
+      route,
+      requestId,
+      safeMessage: "故事删除失败，请稍后重试",
+      errorCode: "STORY_DELETE_FAILED",
       status: 400,
     });
   }

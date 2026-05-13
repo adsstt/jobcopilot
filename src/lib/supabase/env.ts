@@ -10,6 +10,16 @@ export function getSupabaseAnonKey() {
   return value;
 }
 
+export function getSupabaseServiceRoleKey() {
+  const value = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!value) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set. Document uploads require server-side storage access.");
+  return value;
+}
+
+export function getDocumentsBucket() {
+  return process.env.DOCUMENTS_BUCKET || "jobcopilot-documents";
+}
+
 export function getAppUrl() {
   if (typeof window !== "undefined" && window.location?.origin) {
     return window.location.origin;

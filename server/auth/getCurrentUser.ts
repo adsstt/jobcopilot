@@ -1,5 +1,8 @@
 import { unauthorized } from "../apiErrors";
 import { createClient } from "../../src/lib/supabase/server";
+import { headers } from "next/headers";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAnonKey, getSupabaseUrl } from "../../src/lib/supabase/env";
 import { upsertUserFromSupabase, type CurrentUser } from "../db/users";
 
 export async function getCurrentUser(): Promise<CurrentUser> {
@@ -16,19 +19,45 @@ export async function getOptionalCurrentUser(): Promise<CurrentUser | null> {
   } = await supabase.auth.getUser();
 
   if (error) {
-    const message = error.message.toLowerCase();
-    const isMissingSessionError =
-      message.includes("auth session missing") ||
-      message.includes("session from session_id claim in jwt does not exist") ||
-      message.includes("session missing");
-
-    if (isMissingSessionError) {
-      return null;
+    const fallbackUser = await getCurrentUserFromAuthorizationHeader();
+    if (fallbackUser) {
+      return fallbackUser;
     }
-
-    throw unauthorized("Unable to validate the current session.");
+    return null;
   }
 
-  if (!user) return null;
+  if (!user) return getCurrentUserFromAuthorizationHeader();
+  return upsertUserFromSupabase(user);
+}
+
+async function getCurrentUserFromAuthorizationHeader(): Promise<CurrentUser | null> {
+  const headerStore = await headers();
+  const authorization = headerStore.get("authorization");
+
+  if (!authorization?.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+
+  const token = authorization.slice(7).trim();
+  if (!token) {
+    return null;
+  }
+
+  const supabase = createSupabaseClient(getSupabaseUrl(), getSupabaseAnonKey(), {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser(token);
+
+  if (error || !user) {
+    return null;
+  }
+
   return upsertUserFromSupabase(user);
 }

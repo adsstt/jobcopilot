@@ -11,7 +11,7 @@ export interface CreateSessionInput {
   resumeFile?: {
     filename: string;
     mimetype: string;
-    text: string;
+    text?: string;
   } | null;
 }
 
@@ -32,7 +32,7 @@ export interface SaveAnswerInput extends StartSessionInput {
 }
 
 export async function createSessionWithAnalysis(input: CreateSessionInput) {
-  const resumeText = [input.resumeText, input.resumeFile?.text].filter(Boolean).join("\n\n");
+  const resumeText = input.resumeText.trim() || input.resumeFile?.text || "";
 
   return prisma.$transaction(async (tx) => {
     const resume =
@@ -200,6 +200,7 @@ export async function listInterviewReviews(userId: string) {
 
   return sessions.map((session) => ({
     ...extractReviewHighlights(session.review?.improvements),
+    ...extractReviewSample(session.review?.improvements),
     id: session.id,
     title: session.review?.title || `${session.roleTrack} 模拟面试`,
     roleTrack: session.roleTrack,
@@ -217,6 +218,45 @@ export async function listInterviewReviews(userId: string) {
   }));
 }
 
+export async function getInterviewSessionAnalysis(userId: string, sessionId: string) {
+  const session = await prisma.interviewSession.findFirst({
+    where: { id: sessionId, userId },
+    select: {
+      id: true,
+      roleTrack: true,
+      title: true,
+      resumeText: true,
+      jdText: true,
+      analysis: true,
+      messages: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          role: true,
+          content: true,
+        },
+      },
+      matchScore: true,
+      createdAt: true,
+      updatedAt: true,
+      reviewSummary: true,
+      status: true,
+    },
+  });
+
+  if (!session) return null;
+
+  return {
+    ...session,
+    analysis: session.analysis as unknown as MatchAnalysis | null,
+    messages: session.messages
+      .filter((message) => message.role === "ai" || message.role === "user")
+      .map((message) => ({
+        role: message.role as "ai" | "user",
+        content: message.content,
+      })),
+  };
+}
+
 function extractReviewHighlights(value: unknown) {
   if (!value || typeof value !== "object") return {};
   const fullReview = (value as any).fullReview;
@@ -224,6 +264,22 @@ function extractReviewHighlights(value: unknown) {
   return {
     weaknesses: Array.isArray(fullReview.weaknesses) ? fullReview.weaknesses : [],
     nextTrainingFocus: Array.isArray(fullReview.nextTrainingFocus) ? fullReview.nextTrainingFocus : [],
+  };
+}
+
+function extractReviewSample(value: unknown) {
+  if (!value || typeof value !== "object") return {};
+  const fullReview = (value as any).fullReview;
+  if (!fullReview || typeof fullReview !== "object") return {};
+
+  const first = Array.isArray(fullReview.improvedAnswerExamples) ? fullReview.improvedAnswerExamples[0] : null;
+  if (!first || typeof first !== "object") return {};
+
+  return {
+    sampleOriginalQuestion: typeof first.originalQuestion === "string" ? first.originalQuestion : null,
+    sampleOriginalAnswer: typeof first.originalAnswer === "string" ? first.originalAnswer : null,
+    sampleImprovedAnswer: typeof first.improvedAnswer === "string" ? first.improvedAnswer : null,
+    sampleWhyBetter: typeof first.whyBetter === "string" ? first.whyBetter : null,
   };
 }
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as motion from "motion/react-client";
-import { ArrowUpRight, BarChart3, Briefcase, BriefcaseBusiness, CheckCircle2, Clock3, Flame, PenTool, Sparkles } from "lucide-react";
+import { ArrowUpRight, BarChart3, Briefcase, BriefcaseBusiness, CheckCircle2, Clock3, Flame, PenTool, Sparkles, Target, X } from "lucide-react";
 import { Button, Card } from "@/components/ui";
 import { requestDashboardData, type DashboardData } from "@/lib/api";
 import { roleTracks, toneClasses } from "@/lib/mockData";
@@ -9,11 +9,15 @@ import type { CurrentUser } from "../../server/db/users";
 
 interface DashboardProps {
   onStartInterview: () => void;
+  onOpenTracks: () => void;
+  onOpenQuestions: () => void;
+  onOpenStories: () => void;
   currentUser: CurrentUser;
 }
 
-export function Dashboard({ onStartInterview, currentUser }: DashboardProps) {
+export function Dashboard({ onStartInterview, onOpenTracks, onOpenQuestions, onOpenStories, currentUser }: DashboardProps) {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const displayName = currentUser.name || currentUser.email?.split("@")[0] || "User";
 
   useEffect(() => {
@@ -64,6 +68,8 @@ export function Dashboard({ onStartInterview, currentUser }: DashboardProps) {
         avgScore: role.avgScore,
       }))
     : [];
+
+  const selectedRole = roleCards.find((role) => role.id === selectedRoleId) || null;
 
   return (
     <div className="flex flex-col gap-10">
@@ -126,14 +132,27 @@ export function Dashboard({ onStartInterview, currentUser }: DashboardProps) {
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-bold">你的岗位方向</h3>
-          <button className="text-sm font-semibold text-slate-500">全部方向</button>
+          <button onClick={onOpenTracks} className="text-sm font-semibold text-slate-500 transition hover:text-slate-900">
+            全部方向
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
           {roleCards.length ? (
             roleCards.map((role, i) => (
               <motion.div key={`${role.title}-${i}`} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.3, delay: i * 0.1 }}>
-                <Card className="flex cursor-pointer flex-col gap-4 p-5 transition-transform hover:-translate-y-1 hover:shadow-md">
+                <Card
+                  className="flex cursor-pointer flex-col gap-4 p-5 transition-transform hover:-translate-y-1 hover:shadow-md"
+                  onClick={() => setSelectedRoleId(role.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedRoleId(role.id);
+                    }
+                  }}
+                >
                   <div className={cn("flex h-12 w-12 items-center justify-center rounded-2xl", toneClasses[role.tone].soft, toneClasses[role.tone].text)}>
                     <role.icon size={24} />
                   </div>
@@ -197,7 +216,7 @@ export function Dashboard({ onStartInterview, currentUser }: DashboardProps) {
           </div>
           <h3 className="mt-3 text-2xl font-bold text-slate-950">从最近复盘里挑一个薄弱点，补齐 STAR 结构和量化结果。</h3>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">题库稳定后，这里会基于复盘结果和建议问题自动推荐专项训练题。</p>
-          <Button variant="secondary" className="mt-5">
+          <Button variant="secondary" className="mt-5" onClick={onOpenQuestions}>
             开始快练
           </Button>
         </Card>
@@ -206,13 +225,138 @@ export function Dashboard({ onStartInterview, currentUser }: DashboardProps) {
           <div className="text-sm font-bold text-indigo-600">故事库提醒</div>
           <div className="mt-2 text-3xl font-bold text-slate-950">{dashboard?.stats.storyCount ?? 0} 条</div>
           <p className="mt-2 text-sm leading-relaxed text-indigo-900/70">当前数量来自真实 Story 数据。后续可以把高分复盘回答一键沉淀为 STAR 故事。</p>
-          <button className="mt-5 flex items-center gap-1 text-sm font-bold text-indigo-700">
+          <button onClick={onOpenStories} className="mt-5 flex items-center gap-1 text-sm font-bold text-indigo-700 transition hover:text-indigo-900">
             整理故事库
             <ArrowUpRight size={15} />
           </button>
         </Card>
       </section>
+
+      {selectedRole ? (
+        <RoleDetailDialog
+          role={selectedRole}
+          onClose={() => setSelectedRoleId(null)}
+          onStartInterview={() => {
+            setSelectedRoleId(null);
+            onStartInterview();
+          }}
+          onOpenQuestions={() => {
+            setSelectedRoleId(null);
+            onOpenQuestions();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function RoleDetailDialog({
+  role,
+  onClose,
+  onStartInterview,
+  onOpenQuestions,
+}: {
+  role: (typeof roleTracks)[number];
+  onClose: () => void;
+  onStartInterview: () => void;
+  onOpenQuestions: () => void;
+}) {
+  const tone = toneClasses[role.tone];
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/35 px-4 py-6 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl md:p-8"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-5">
+          <div className="flex items-start gap-4">
+            <div className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-[24px]", tone.soft, tone.text)}>
+              <role.icon size={30} />
+            </div>
+            <div>
+              <div className="text-sm font-bold uppercase tracking-[0.2em] text-indigo-600">Track Detail</div>
+              <h2 className="mt-2 text-3xl font-bold text-slate-950">{role.title}</h2>
+              <p className="mt-1 text-sm font-semibold text-slate-500">{role.subtitle}</p>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600">{role.description}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <MetricCard label="训练次数" value={`${role.sessions}`} helper="来自当前岗位训练记录" />
+          <MetricCard label="平均分" value={`${role.avgScore || 0}`} helper="帮助判断当前表达稳定度" />
+          <MetricCard label="匹配度" value={`${role.match}%`} helper="基于当前岗位能力画像" />
+        </div>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-[1.15fr_0.85fr]">
+          <Card className="rounded-[28px] p-6">
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+              <BarChart3 size={18} /> 岗位分析
+            </div>
+            <div className="mt-5 space-y-4">
+              {role.abilities.map((ability) => (
+                <div key={ability.label}>
+                  <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-700">
+                    <span>{ability.label}</span>
+                    <span className="text-slate-500">{ability.score}%</span>
+                  </div>
+                  <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                    <div className={cn("h-full rounded-full", tone.bg)} style={{ width: `${ability.score}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <div className="flex flex-col gap-4">
+            <Card className="rounded-[28px] border-indigo-100 bg-indigo-50/60 p-6">
+              <div className="flex items-center gap-2 text-sm font-bold text-indigo-700">
+                <Target size={17} /> 下一次训练建议
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-indigo-950/75">{role.nextFocus}</p>
+            </Card>
+
+            <Card className="rounded-[28px] p-6">
+              <div className="text-sm font-bold text-slate-900">高频追问</div>
+              <div className="mt-4 space-y-3">
+                {role.questions.slice(0, 3).map((question) => (
+                  <div key={question} className="rounded-2xl bg-slate-50 p-3 text-sm font-medium leading-relaxed text-slate-700">
+                    {question}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <Button variant="outline" className="gap-2" onClick={onOpenQuestions}>
+            查看该方向题库 <ArrowUpRight size={16} />
+          </Button>
+          <Button className="gap-2 shadow-sm" onClick={onStartInterview}>
+            <Sparkles size={16} /> 开始该方向模拟
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
+  return (
+    <Card className="rounded-[24px] p-5">
+      <div className="text-sm font-semibold text-slate-500">{label}</div>
+      <div className="mt-2 text-3xl font-bold text-slate-950">{value}</div>
+      <div className="mt-2 text-xs font-bold text-slate-500">{helper}</div>
+    </Card>
   );
 }
 

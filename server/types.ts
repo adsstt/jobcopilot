@@ -35,6 +35,11 @@ export interface InterviewTurn {
 export interface InterviewMessageRequest {
   sessionId?: string;
   interviewType?: "HR面" | "业务面" | "技术面" | "终面";
+  interviewStyle?: string;
+  interviewStyleInstruction?: string;
+  interviewLanguage?: string;
+  interviewLanguageInstruction?: string;
+  pressureMode?: boolean;
   roleTrack?: string;
   resumeText?: string;
   jdText?: string;

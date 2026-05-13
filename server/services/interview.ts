@@ -34,6 +34,11 @@ function buildInterviewContext(input: InterviewMessageRequest) {
   const normalized = {
     roleTrack: input.roleTrack?.trim() || input.analysis?.roleTrack || "技术岗",
     interviewType: input.interviewType || "业务面",
+    interviewStyle: input.interviewStyle || "friendly",
+    interviewStyleInstruction: input.interviewStyleInstruction || "外企温和流：礼貌、鼓励、结构化反馈，在追问时保持支持性和清晰边界。",
+    interviewLanguage: input.interviewLanguage || "zh-CN",
+    interviewLanguageInstruction: input.interviewLanguageInstruction || "全程使用中文普通话表达。",
+    pressureMode: Boolean(input.pressureMode),
     resumeText: input.resumeText?.trim() || "",
     jdText: input.jdText?.trim() || "",
     analysis: input.analysis || defaultAnalysis(input.roleTrack || "技术岗"),

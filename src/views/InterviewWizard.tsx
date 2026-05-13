@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button, Card } from "@/components/ui";
 import { roleTracks, toneClasses } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
-import { requestAnalysis, requestInterviewMessage, requestInterviewMessageStream, requestSessionReview, type FullReviewResult, type InterviewMessageResponse, type InterviewTurn, type MatchAnalysis } from "@/lib/api";
+import { requestAnalysis, requestDocumentDetail, requestInterviewMessage, requestInterviewMessageStream, requestReusableDocuments, requestSessionReview, saveStory, transcribeInterviewAudio, type FullReviewResult, type InterviewMessageResponse, type InterviewTurn, type MatchAnalysis, type ReusableDocument } from "@/lib/api";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -22,9 +22,19 @@ import {
 import * as motion from "motion/react-client";
 
 type Step = "upload" | "analyze" | "interview" | "review";
+type RecordingState = "idle" | "recording" | "transcribing";
 
 interface WizardProps {
   onComplete: () => void;
+  initialInterview?: {
+    sessionId: string;
+    roleTrack: string;
+    resumeText: string;
+    jdText: string;
+    analysis: MatchAnalysis | null;
+    history: InterviewTurn[];
+    autoStart: boolean;
+  } | null;
 }
 
 const stepLabels: Record<Step, string> = {
@@ -45,19 +55,27 @@ function replaceLastAiMessage(history: InterviewTurn[], content: string): Interv
   return [...next, { role: "ai", content }];
 }
 
-function getFirstImprovedAnswer(review: FullReviewResult) {
-  const first = review.improvedAnswerExamples?.[0];
+function getFirstImprovedAnswer(review: FullReviewResult | null) {
+  const first = review?.improvedAnswerExamples?.[0];
   const value = first?.improvedAnswer;
   return typeof value === "string" ? value : "";
 }
 
-export function InterviewWizard({ onComplete }: WizardProps) {
+function inferTrackId(roleTrack: string) {
+  const normalized = roleTrack.trim();
+  const matched = roleTracks.find((track) => normalized.includes(track.title) || track.title.includes(normalized));
+  return matched?.id || "frontend";
+}
+
+export function InterviewWizard({ onComplete, initialInterview = null }: WizardProps) {
   const [step, setStep] = useState<Step>("upload");
   const [selectedTrackId, setSelectedTrackId] = useState("frontend");
   const [resumeText, setResumeText] = useState("");
   const [jdText, setJdText] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [jdFile, setJdFile] = useState<File | null>(null);
+  const [resumeDocumentId, setResumeDocumentId] = useState("");
+  const [jdDocumentId, setJdDocumentId] = useState("");
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [analysis, setAnalysis] = useState<MatchAnalysis | null>(null);
   const [history, setHistory] = useState<InterviewTurn[]>([]);
@@ -67,7 +85,37 @@ export function InterviewWizard({ onComplete }: WizardProps) {
   const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState("");
+  const hasBootstrappedInitialInterview = useRef(false);
   const selectedTrack = roleTracks.find((track) => track.id === selectedTrackId) ?? roleTracks[0];
+
+  useEffect(() => {
+    if (!initialInterview || hasBootstrappedInitialInterview.current) return;
+
+    hasBootstrappedInitialInterview.current = true;
+    const existingHistory = initialInterview.history || [];
+    const lastAiTurn = [...existingHistory].reverse().find((turn) => turn.role === "ai");
+
+    setSelectedTrackId(inferTrackId(initialInterview.roleTrack));
+    setResumeText(initialInterview.resumeText);
+    setJdText(initialInterview.jdText);
+    setSessionId(initialInterview.sessionId);
+    setAnalysis(initialInterview.analysis);
+    setHistory(existingHistory);
+    setCurrentQuestion(lastAiTurn?.content || "");
+
+    if (existingHistory.length > 0) {
+      setStep("interview");
+      return;
+    }
+
+    if (initialInterview.autoStart) {
+      setStep("interview");
+      void startInterviewFromSession(initialInterview);
+      return;
+    }
+
+    setStep("analyze");
+  }, [initialInterview]);
 
   const goBack = () => {
     if (step === "upload") {
@@ -89,6 +137,8 @@ export function InterviewWizard({ onComplete }: WizardProps) {
         jdText,
         resumeFile,
         jdFile,
+        resumeDocumentId,
+        jdDocumentId,
       });
       setSessionId(result.sessionId);
       setAnalysis(result);
@@ -97,6 +147,46 @@ export function InterviewWizard({ onComplete }: WizardProps) {
       setError(err instanceof Error ? err.message : "分析失败，请稍后重试。");
     } finally {
       setIsWorking(false);
+    }
+  };
+
+  const selectReusableDocument = async (kind: "resume" | "jd", documentId: string) => {
+    setError("");
+    if (!documentId) {
+      if (kind === "resume") setResumeDocumentId("");
+      if (kind === "jd") setJdDocumentId("");
+      return;
+    }
+
+    try {
+      const result = await requestDocumentDetail(documentId);
+      if (kind === "resume") {
+        setResumeDocumentId(documentId);
+        setResumeText(result.document.parsedText);
+        setResumeFile(null);
+      } else {
+        setJdDocumentId(documentId);
+        setJdText(result.document.parsedText);
+        setJdFile(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "资料读取失败，请重新选择。");
+    }
+  };
+
+  const setUploadFile = (kind: "resume" | "jd", file: File | null) => {
+    setError("");
+    if (file && (file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(file.name))) {
+      setError("当前暂不支持图片 OCR，请粘贴文本或上传 PDF/DOCX/TXT");
+      return;
+    }
+
+    if (kind === "resume") {
+      setResumeFile(file);
+      if (file) setResumeDocumentId("");
+    } else {
+      setJdFile(file);
+      if (file) setJdDocumentId("");
     }
   };
 
@@ -119,6 +209,33 @@ export function InterviewWizard({ onComplete }: WizardProps) {
       setStep("interview");
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成面试问题失败，请稍后重试。");
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
+  const startInterviewFromSession = async (input: NonNullable<WizardProps["initialInterview"]>) => {
+    setIsWorking(true);
+    setError("");
+    try {
+      const result = await requestInterviewMessage({
+        sessionId: input.sessionId,
+        roleTrack: input.roleTrack,
+        resumeText: input.resumeText,
+        jdText: input.jdText,
+        analysis: input.analysis,
+        history: [],
+      });
+      setSelectedTrackId(inferTrackId(input.roleTrack));
+      setSessionId(result.sessionId || input.sessionId);
+      setAnalysis(input.analysis);
+      setCurrentQuestion(result.nextQuestion);
+      setLastEvaluation(result.evaluation);
+      setHistory([{ role: "ai", content: result.nextQuestion }]);
+      setStep("interview");
+    } catch (err) {
+      setStep("interview");
+      setError(err instanceof Error ? err.message : "进入模拟面试失败，请稍后重试。");
     } finally {
       setIsWorking(false);
     }
@@ -236,10 +353,13 @@ export function InterviewWizard({ onComplete }: WizardProps) {
             jdText={jdText}
             resumeFile={resumeFile}
             jdFile={jdFile}
+            resumeDocumentId={resumeDocumentId}
+            jdDocumentId={jdDocumentId}
             onResumeTextChange={setResumeText}
             onJdTextChange={setJdText}
-            onResumeFileChange={setResumeFile}
-            onJdFileChange={setJdFile}
+            onResumeFileChange={(file) => setUploadFile("resume", file)}
+            onJdFileChange={(file) => setUploadFile("jd", file)}
+            onDocumentSelect={selectReusableDocument}
             onNext={runAnalysis}
             isLoading={isWorking}
             error={error}
@@ -256,6 +376,7 @@ export function InterviewWizard({ onComplete }: WizardProps) {
             error={error}
             onSubmitAnswer={submitAnswer}
             onNext={enterReview}
+            onRetryStart={initialInterview ? () => startInterviewFromSession(initialInterview) : undefined}
           />
         )}
         {step === "review" && <ReviewStep track={selectedTrack} evaluation={lastEvaluation} fullReview={fullReview} isLoading={isReviewLoading} error={error} onFinish={onComplete} />}
@@ -271,10 +392,13 @@ function UploadStep({
   jdText,
   resumeFile,
   jdFile,
+  resumeDocumentId,
+  jdDocumentId,
   onResumeTextChange,
   onJdTextChange,
   onResumeFileChange,
   onJdFileChange,
+  onDocumentSelect,
   onNext,
   isLoading,
   error,
@@ -285,16 +409,43 @@ function UploadStep({
   jdText: string;
   resumeFile: File | null;
   jdFile: File | null;
+  resumeDocumentId: string;
+  jdDocumentId: string;
   onResumeTextChange: (value: string) => void;
   onJdTextChange: (value: string) => void;
   onResumeFileChange: (file: File | null) => void;
   onJdFileChange: (file: File | null) => void;
+  onDocumentSelect: (kind: "resume" | "jd", documentId: string) => Promise<void>;
   onNext: () => Promise<void>;
   isLoading: boolean;
   error: string;
 }) {
   const [resumeMode, setResumeMode] = useState<"file" | "text">("file");
   const [jdMode, setJdMode] = useState<"text" | "file">("text");
+  const [reusableDocuments, setReusableDocuments] = useState<ReusableDocument[]>([]);
+  const [isDocumentsLoading, setIsDocumentsLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setIsDocumentsLoading(true);
+    requestReusableDocuments()
+      .then((data) => {
+        if (active) setReusableDocuments(data.documents);
+      })
+      .catch(() => {
+        if (active) setReusableDocuments([]);
+      })
+      .finally(() => {
+        if (active) setIsDocumentsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const resumeDocuments = reusableDocuments.filter((document) => document.kind === "resume");
+  const jdDocuments = reusableDocuments.filter((document) => document.kind === "jd");
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-8">
@@ -338,8 +489,12 @@ function UploadStep({
           textPlaceholder="在此处粘贴你的简历纯文本..."
           textValue={resumeText}
           file={resumeFile}
+          selectedDocumentId={resumeDocumentId}
+          reusableDocuments={resumeDocuments}
+          isDocumentsLoading={isDocumentsLoading}
           onTextChange={onResumeTextChange}
           onFileChange={onResumeFileChange}
+          onDocumentSelect={(documentId) => onDocumentSelect("resume", documentId)}
         />
         <UploadCard
           tone="emerald"
@@ -352,8 +507,12 @@ function UploadStep({
           textPlaceholder="在此处粘贴职位描述文本..."
           textValue={jdText}
           file={jdFile}
+          selectedDocumentId={jdDocumentId}
+          reusableDocuments={jdDocuments}
+          isDocumentsLoading={isDocumentsLoading}
           onTextChange={onJdTextChange}
           onFileChange={onJdFileChange}
+          onDocumentSelect={(documentId) => onDocumentSelect("jd", documentId)}
         />
       </div>
 
@@ -382,8 +541,12 @@ function UploadCard({
   textPlaceholder,
   textValue,
   file,
+  selectedDocumentId,
+  reusableDocuments,
+  isDocumentsLoading,
   onTextChange,
   onFileChange,
+  onDocumentSelect,
 }: {
   tone: "indigo" | "emerald";
   icon: React.ReactNode;
@@ -395,8 +558,12 @@ function UploadCard({
   textPlaceholder: string;
   textValue: string;
   file: File | null;
+  selectedDocumentId: string;
+  reusableDocuments: ReusableDocument[];
+  isDocumentsLoading: boolean;
   onTextChange: (value: string) => void;
   onFileChange: (file: File | null) => void;
+  onDocumentSelect: (documentId: string) => Promise<void>;
 }) {
   const activeClasses = tone === "indigo" ? "ring-indigo-500/20 focus:border-indigo-500" : "ring-emerald-500/20 focus:border-emerald-500";
   const iconClasses = tone === "indigo" ? "bg-indigo-50 text-indigo-600" : "bg-emerald-50 text-emerald-600";
@@ -414,7 +581,7 @@ function UploadCard({
           onClick={() => onModeChange("file")}
           className={cn("flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-semibold transition-colors", mode === "file" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500")}
         >
-          <UploadCloud size={16} /> 文件/图片
+          <UploadCloud size={16} /> 文件上传
         </button>
         <button
           onClick={() => onModeChange("text")}
@@ -424,19 +591,38 @@ function UploadCard({
         </button>
       </div>
 
+      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+          <Library size={14} /> 资料中心
+        </div>
+        <select
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+          value={selectedDocumentId}
+          onChange={(event) => void onDocumentSelect(event.target.value)}
+          disabled={isDocumentsLoading}
+        >
+          <option value="">{isDocumentsLoading ? "正在加载资料..." : "选择已上传资料"}</option>
+          {reusableDocuments.map((document) => (
+            <option key={document.id} value={document.id}>
+              {document.title} · {document.size}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {mode === "file" ? (
         <label className={cn("group mt-2 flex h-40 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 text-slate-400 transition-all hover:bg-slate-100", hoverClasses)}>
           <input
             className="hidden"
             type="file"
-            accept=".pdf,.docx,.txt,image/png,image/jpeg"
+            accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png,image/jpeg"
             onChange={(event) => onFileChange(event.target.files?.[0] || null)}
           />
           <UploadCloud size={32} className="transition-transform group-hover:scale-110" />
           <span className="max-w-full px-4 text-center font-semibold text-slate-700">{file?.name || fileLabel}</span>
           <span className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-            <FileText size={14} /> PDF / Word
-            <ImageIcon size={14} className="ml-1" /> 图片/截图
+            <FileText size={14} /> PDF / DOCX / TXT
+            <ImageIcon size={14} className="ml-1" /> 图片暂不支持
           </span>
         </label>
       ) : (
@@ -530,9 +716,23 @@ function AnalyzeStep({
       </div>
 
       {error && <p className="text-sm font-bold text-rose-600">{error}</p>}
-      <Button size="lg" className="w-full shadow-xl md:w-auto md:self-end" onClick={onNext} disabled={isLoading}>
-        {isLoading ? "正在生成第一题..." : "开始模拟面试"}
-      </Button>
+      <div className="flex flex-col gap-3 md:flex-row md:justify-end">
+        {analysis?.sessionId ? (
+          <Button
+            variant="outline"
+            size="lg"
+            className="w-full md:w-auto"
+            onClick={() => {
+              window.location.href = `/analysis/${analysis.sessionId}`;
+            }}
+          >
+            查看完整诊断
+          </Button>
+        ) : null}
+        <Button size="lg" className="w-full shadow-xl md:w-auto" onClick={onNext} disabled={isLoading}>
+          {isLoading ? "正在生成第一题..." : "开始模拟面试"}
+        </Button>
+      </div>
     </motion.div>
   );
 }
@@ -546,6 +746,7 @@ function InterviewStep({
   error,
   onSubmitAnswer,
   onNext,
+  onRetryStart,
 }: {
   track: typeof roleTracks[number];
   question: string;
@@ -555,15 +756,122 @@ function InterviewStep({
   error: string;
   onSubmitAnswer: (answer: string) => Promise<void>;
   onNext: () => void;
+  onRetryStart?: () => Promise<void>;
 }) {
-  const [isRecording, setIsRecording] = useState(false);
+  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
+  const [recordingMs, setRecordingMs] = useState(0);
+  const [recordingError, setRecordingError] = useState("");
   const [answer, setAnswer] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const startedAtRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      clearRecordingTimer(timerRef);
+      stopMediaStream(streamRef.current);
+    };
+  }, []);
 
   const submit = async () => {
     if (!answer.trim()) return;
     await onSubmitAnswer(answer);
     setAnswer("");
   };
+
+  const startRecording = async () => {
+    setRecordingError("");
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setRecordingError("当前浏览器不支持录音，请改用文字输入。");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getPreferredAudioMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      audioChunksRef.current = [];
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      startedAtRef.current = Date.now();
+      setRecordingMs(0);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        void finishRecording(recorder.mimeType || mimeType || "audio/webm");
+      };
+      recorder.onerror = () => {
+        setRecordingError("录音中断，请重新尝试或改用文字输入。");
+        setRecordingState("idle");
+        clearRecordingTimer(timerRef);
+        stopMediaStream(streamRef.current);
+        streamRef.current = null;
+      };
+
+      recorder.start();
+      setRecordingState("recording");
+      timerRef.current = setInterval(() => {
+        setRecordingMs(Date.now() - startedAtRef.current);
+      }, 250);
+    } catch {
+      setRecordingError("无法访问麦克风，请允许浏览器麦克风权限或改用文字输入。");
+      clearRecordingTimer(timerRef);
+      stopMediaStream(streamRef.current);
+      streamRef.current = null;
+      setRecordingState("idle");
+    }
+  };
+
+  const stopRecording = () => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    setRecordingState("transcribing");
+    clearRecordingTimer(timerRef);
+    setRecordingMs(Date.now() - startedAtRef.current);
+    recorder.stop();
+  };
+
+  const finishRecording = async (mimeType: string) => {
+    stopMediaStream(streamRef.current);
+    streamRef.current = null;
+    const durationMs = Math.max(Date.now() - startedAtRef.current, recordingMs);
+    const audio = new Blob(audioChunksRef.current, { type: mimeType });
+
+    if (!audio.size) {
+      setRecordingError("没有录到有效音频，请重新录制或改用文字输入。");
+      setRecordingState("idle");
+      return;
+    }
+
+    try {
+      const result = await transcribeInterviewAudio({
+        audio,
+        durationMs,
+        fileName: `interview-answer-${Date.now()}.${mimeType.includes("mp4") ? "mp4" : "webm"}`,
+      });
+      const transcript = result.transcription.text.trim();
+      setAnswer((current) => [current.trim(), transcript].filter(Boolean).join("\n"));
+    } catch (err) {
+      setRecordingError(err instanceof Error ? err.message : "语音识别失败，请改用文字输入。");
+    } finally {
+      setRecordingState("idle");
+      audioChunksRef.current = [];
+      recorderRef.current = null;
+    }
+  };
+
+  const recordingStatusText =
+    recordingState === "recording"
+      ? `正在录音 ${formatDuration(recordingMs)}`
+      : recordingState === "transcribing"
+        ? "正在识别语音..."
+        : "点击麦克风录音，或直接输入文字";
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-6 pb-8">
@@ -600,18 +908,18 @@ function InterviewStep({
             </div>
             <div>
               <h2 className="text-2xl font-bold">AI 面试官</h2>
-              <p className="text-slate-500">{isRecording ? "正在记录你的回答..." : "正在倾听，准备追问"}</p>
+              <p className="text-slate-500">{recordingStatusText}</p>
             </div>
           </div>
 
-          <div className="relative z-10 w-full max-w-lg rounded-3xl border border-slate-100 bg-slate-50 p-5 text-left shadow-sm">
+          <div className="relative z-10 flex w-full max-w-lg flex-col rounded-3xl border border-slate-100 bg-slate-50 p-5 text-left shadow-sm">
             <div className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Question</div>
             <p className="mt-3 text-base font-semibold leading-relaxed text-slate-800">
               {question || "请先用 2-3 分钟介绍一个最能代表你岗位能力的项目，重点说明背景、你的职责、关键行动和结果。"}
             </p>
             <textarea
-              className="mt-4 min-h-24 w-full resize-none rounded-2xl border border-slate-200 bg-white p-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-              placeholder="MVP 阶段可先输入文字回答；后续这里会接入 ASR 语音转写。"
+              className="mt-4 h-32 w-full resize-none overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 text-sm leading-6 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+              placeholder="可以点击麦克风录音自动转写，也可以直接输入文字回答。"
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
             />
@@ -620,7 +928,13 @@ function InterviewStep({
                 上轮反馈：{evaluation.summary}
               </div>
             )}
+            {recordingError && <div className="mt-3 text-sm font-bold text-rose-600">{recordingError}</div>}
             {error && <div className="mt-3 text-sm font-bold text-rose-600">{error}</div>}
+            {error && history.length === 0 && onRetryStart ? (
+              <Button variant="outline" className="mt-3" onClick={() => void onRetryStart()} disabled={isLoading}>
+                {isLoading ? "正在重新进入..." : "重新进入模拟面试"}
+              </Button>
+            ) : null}
           </div>
 
           <div className="relative z-10 flex items-center justify-center gap-5">
@@ -628,19 +942,22 @@ function InterviewStep({
               <Pause size={22} />
             </Button>
             <button
-              onClick={() => setIsRecording(!isRecording)}
+              onClick={recordingState === "recording" ? stopRecording : () => void startRecording()}
+              disabled={isLoading || recordingState === "transcribing"}
               className={cn(
-                "flex h-24 w-24 items-center justify-center rounded-full shadow-2xl transition-all duration-300",
-                isRecording ? "scale-110 bg-red-500 ring-8 ring-red-500/20" : "bg-slate-900 hover:scale-105 hover:bg-slate-800"
+                "flex h-24 w-24 items-center justify-center rounded-full shadow-2xl transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60",
+                recordingState === "recording" ? "scale-110 bg-red-500 ring-8 ring-red-500/20" : "bg-slate-900 hover:scale-105 hover:bg-slate-800",
+                recordingState === "transcribing" && "bg-indigo-600 ring-8 ring-indigo-500/20"
               )}
+              aria-label={recordingState === "recording" ? "停止录音" : "开始录音"}
             >
-              {isRecording ? <Square size={30} className="text-white" fill="currentColor" /> : <Mic size={40} className="text-white" />}
+              {recordingState === "recording" ? <Square size={30} className="text-white" fill="currentColor" /> : <Mic size={40} className="text-white" />}
             </button>
             <Button variant="outline" size="icon" className="h-14 w-14 bg-white text-slate-900 shadow-sm" onClick={onNext}>
               <CheckCircle2 size={22} />
             </Button>
           </div>
-          <Button className="relative z-10 w-full max-w-lg" onClick={submit} disabled={isLoading || !answer.trim()}>
+          <Button className="relative z-10 w-full max-w-lg" onClick={submit} disabled={isLoading || recordingState === "transcribing" || !answer.trim()}>
             {isLoading ? "正在生成反馈..." : "提交回答并生成下一题"}
           </Button>
         </Card>
@@ -672,6 +989,29 @@ function Message({ who, text, muted }: { who: string; text: string; muted?: bool
   );
 }
 
+function getPreferredAudioMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function stopMediaStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
+function clearRecordingTimer(timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>) {
+  if (!timerRef.current) return;
+  clearInterval(timerRef.current);
+  timerRef.current = null;
+}
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function ReviewStep({
   track,
   evaluation,
@@ -687,6 +1027,37 @@ function ReviewStep({
   error: string;
   onFinish: () => void;
 }) {
+  const [isSavingStory, setIsSavingStory] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+
+  const saveReviewToStory = async () => {
+    setIsSavingStory(true);
+    setSaveMessage("");
+    try {
+      const originalAnswer = getOriginalAnswerExample(fullReview);
+      const improvedAnswer = fullReview ? getFirstImprovedAnswer(fullReview) : "";
+      const focus = fullReview?.nextTrainingFocus?.[0] || track.abilities[0].label || "面试表达";
+
+      await saveStory({
+        title: `${track.title} 面试复盘故事`,
+        background: originalAnswer || fullReview?.summary || evaluation?.summary || "来源于本次模拟面试复盘。",
+        task: `围绕「${focus}」补强面试表达。`,
+        action: improvedAnswer || evaluation?.rewrittenAnswer || "根据复盘反馈补充个人角色、关键动作、方案取舍和量化结果。",
+        result: fullReview?.overallScore || evaluation?.score ? `本次复盘得分 ${fullReview?.overallScore || evaluation?.score}。` : "已沉淀为可继续编辑的故事素材。",
+        relatedSkill: focus,
+        relatedJDKeywords: [track.title, focus].filter(Boolean),
+        confidenceScore: Math.max(50, Math.min(95, fullReview?.overallScore || evaluation?.score || 70)),
+        isHighFrequency: true,
+        source: "review",
+      });
+      setSaveMessage("已保存到故事库。");
+    } catch (err) {
+      setSaveMessage(err instanceof Error ? err.message : "保存到故事库失败。");
+    } finally {
+      setIsSavingStory(false);
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-8">
       <div>
@@ -695,6 +1066,7 @@ function ReviewStep({
           {isLoading ? "正在基于整场面试生成复盘..." : `基于「${track.title}」方向的实际表现生成回答重塑和下一步训练建议。`}
         </p>
         {error && <p className="mt-3 text-sm font-bold text-rose-600">{error}</p>}
+        {saveMessage && <p className="mt-3 text-sm font-bold text-emerald-600">{saveMessage}</p>}
       </div>
 
       <Card className="flex flex-col gap-8 overflow-hidden border-0 bg-slate-900 p-8 text-white md:flex-row">
@@ -745,15 +1117,15 @@ function ReviewStep({
           <div className="rounded-2xl bg-indigo-600 p-5 text-white shadow-md">
             <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-indigo-200">AI 重塑建议</span>
             <p className="text-sm font-medium leading-relaxed">
-              {getFirstImprovedAnswer(fullReview as FullReviewResult) || evaluation?.rewrittenAnswer || "“当时旧框架造成移动端首屏性能瓶颈，关键页面转化率持续承压。我主导 React 渐进迁移，通过新老页面共存降低上线风险，并把核心组件抽象为团队基础设施。最终 3 个月内将 FCP 提升 40%，同时保障业务零停机迭代。”"}
+              {getFirstImprovedAnswer(fullReview) || evaluation?.rewrittenAnswer || "“当时旧框架造成移动端首屏性能瓶颈，关键页面转化率持续承压。我主导 React 渐进迁移，通过新老页面共存降低上线风险，并把核心组件抽象为团队基础设施。最终 3 个月内将 FCP 提升 40%，同时保障业务零停机迭代。”"}
             </p>
           </div>
         </Card>
       </section>
 
       <div className="flex flex-col gap-3 md:flex-row md:justify-end">
-        <Button variant="outline" className="gap-2">
-          <Library size={17} /> 保存到故事库
+        <Button variant="outline" className="gap-2" onClick={() => void saveReviewToStory()} disabled={isSavingStory}>
+          <Library size={17} /> {isSavingStory ? "保存中..." : "保存到故事库"}
         </Button>
         <Button size="lg" className="shadow-xl" onClick={onFinish}>
           返回训练大厅

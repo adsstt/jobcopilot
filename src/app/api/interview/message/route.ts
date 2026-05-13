@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildApiErrorResponse, createRequestId, createStreamErrorEvent } from "../../../../../server/apiErrors";
 import { getCurrentUser } from "../../../../../server/auth/getCurrentUser";
 import { getSessionTurns, saveAnswerAndAiResponse, saveInitialAiQuestion } from "../../../../../server/db/aiSessions";
+import { getInterviewLanguageInstruction, getInterviewStyleInstruction, getUserPreferences } from "../../../../../server/db/preferences";
 import { createInterviewTurn, createInterviewTurnStream } from "../../../../../server/services/interview";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const user = await getCurrentUser();
-    const interviewBody = await withPersistedHistory(body, user.id);
+    const interviewBody = await withPersistedSettings(await withPersistedHistory(body, user.id), user.id);
 
     if (interviewBody.stream) {
       return createStreamingResponse(interviewBody, user.id, requestId);
@@ -120,4 +121,19 @@ async function withPersistedHistory(body: any, userId: string) {
 
   const history = await getSessionTurns(userId, body.sessionId);
   return { ...body, history };
+}
+
+async function withPersistedSettings(body: any, userId: string) {
+  const preferences = await getUserPreferences(userId);
+  const interviewStyle = body.interviewStyle || preferences.interviewStyle;
+  const interviewLanguage = body.interviewLanguage || preferences.interviewLanguage;
+
+  return {
+    ...body,
+    interviewStyle,
+    interviewStyleInstruction: body.interviewStyleInstruction || getInterviewStyleInstruction(interviewStyle),
+    interviewLanguage,
+    interviewLanguageInstruction: body.interviewLanguageInstruction || getInterviewLanguageInstruction(interviewLanguage),
+    pressureMode: typeof body.pressureMode === "boolean" ? body.pressureMode : preferences.pressureMode,
+  };
 }

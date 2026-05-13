@@ -57,12 +57,6 @@ export function Layout({ currentView, onViewChange, currentUser, children }: Lay
         </nav>
 
         <div className="mt-auto px-2">
-          <div className="mb-4 rounded-3xl border border-indigo-100 bg-indigo-50 p-4 text-indigo-950">
-            <div className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-500">Next drill</div>
-            <div className="mt-2 text-sm font-bold">技术面 · 系统设计追问</div>
-            <div className="mt-1 text-xs leading-relaxed text-indigo-700">预计 5 分钟，补强业务指标表达。</div>
-          </div>
-
           <div className="rounded-3xl bg-slate-100 p-3">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">

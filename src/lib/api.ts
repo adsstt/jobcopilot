@@ -1,4 +1,5 @@
 import { normalizeResponseError } from "./appErrors";
+import { createClient as createSupabaseClient } from "./supabase/client";
 
 export type InterviewType = "HR面" | "业务面" | "技术面" | "终面";
 
@@ -54,6 +55,8 @@ export interface AnalysisInput {
   jdText: string;
   resumeFile?: File | null;
   jdFile?: File | null;
+  resumeDocumentId?: string;
+  jdDocumentId?: string;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -64,17 +67,44 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
+async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+
+  if (typeof window !== "undefined") {
+    try {
+      const supabase = createSupabaseClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session?.access_token) {
+        headers.set("Authorization", `Bearer ${session.access_token}`);
+      }
+    } catch {
+      // Fall back to cookie-based auth.
+    }
+  }
+
+  return fetch(input, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
+}
+
 export async function requestAnalysis(input: AnalysisInput) {
   if (input.resumeFile || input.jdFile) {
     const form = new FormData();
     form.set("roleTrack", input.roleTrack);
     form.set("resumeText", input.resumeText);
     form.set("jdText", input.jdText);
+    if (input.resumeDocumentId) form.set("resumeDocumentId", input.resumeDocumentId);
+    if (input.jdDocumentId) form.set("jdDocumentId", input.jdDocumentId);
     if (input.resumeFile) form.set("resume", input.resumeFile);
     if (input.jdFile) form.set("jd", input.jdFile);
 
     return parseResponse<MatchAnalysis>(
-      await fetch("/api/analysis", {
+      await authFetch("/api/analysis", {
         method: "POST",
         body: form,
       })
@@ -82,13 +112,15 @@ export async function requestAnalysis(input: AnalysisInput) {
   }
 
   return parseResponse<MatchAnalysis>(
-    await fetch("/api/analysis", {
+    await authFetch("/api/analysis", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         roleTrack: input.roleTrack,
         resumeText: input.resumeText,
         jdText: input.jdText,
+        resumeDocumentId: input.resumeDocumentId,
+        jdDocumentId: input.jdDocumentId,
       }),
     })
   );
@@ -105,7 +137,7 @@ export async function requestInterviewMessage(input: {
   answer?: string;
 }) {
   return parseResponse<InterviewMessageResponse>(
-    await fetch("/api/interview/message", {
+    await authFetch("/api/interview/message", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -130,7 +162,7 @@ export async function requestInterviewMessageStream(
     onError?: (error: string) => void;
   }
 ) {
-  const response = await fetch("/api/interview/message", {
+  const response = await authFetch("/api/interview/message", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...input, stream: true }),
@@ -181,6 +213,27 @@ export async function requestInterviewMessageStream(
   }
 }
 
+export interface TranscriptionResult {
+  text: string;
+  durationMs: number;
+  audioSize: number;
+  mimeType: string;
+  model: string;
+}
+
+export async function transcribeInterviewAudio(input: { audio: Blob; durationMs: number; fileName?: string }) {
+  const form = new FormData();
+  form.set("audio", input.audio, input.fileName || "answer.webm");
+  form.set("durationMs", String(input.durationMs));
+
+  return parseResponse<{ transcription: TranscriptionResult }>(
+    await authFetch("/api/interview/transcribe", {
+      method: "POST",
+      body: form,
+    })
+  );
+}
+
 export interface InterviewReviewSummary {
   id: string;
   title: string;
@@ -192,11 +245,15 @@ export interface InterviewReviewSummary {
   tags: string[];
   matchScore?: number | null;
   status: string;
+  sampleOriginalQuestion?: string | null;
+  sampleOriginalAnswer?: string | null;
+  sampleImprovedAnswer?: string | null;
+  sampleWhyBetter?: string | null;
 }
 
 export async function requestInterviewReviews() {
   return parseResponse<{ reviews: InterviewReviewSummary[] }>(
-    await fetch("/api/interview/sessions", {
+    await authFetch("/api/interview/sessions", {
       method: "GET",
     })
   );
@@ -227,7 +284,7 @@ export interface DashboardData {
 
 export async function requestDashboardData() {
   return parseResponse<{ dashboard: DashboardData }>(
-    await fetch("/api/dashboard", {
+    await authFetch("/api/dashboard", {
       method: "GET",
     })
   );
@@ -235,18 +292,95 @@ export async function requestDashboardData() {
 
 export interface DocumentSummary {
   id: string;
+  source: "asset" | "legacyResume" | "legacyJd";
+  kind: "resume" | "jd" | "general";
   type: string;
   title: string;
+  fileName?: string | null;
+  mimeType?: string | null;
   track: string;
   status: string;
   updated: string;
   size: string;
+  textSize?: string;
+  canView?: boolean;
+  canDownload?: boolean;
 }
 
 export async function requestDocuments() {
   return parseResponse<{ documents: DocumentSummary[] }>(
-    await fetch("/api/documents", {
+    await authFetch("/api/documents", {
       method: "GET",
+    })
+  );
+}
+
+export interface ReusableDocument {
+  id: string;
+  kind: "resume" | "jd";
+  title: string;
+  fileName: string;
+  size: string;
+  updated: string;
+}
+
+export async function requestReusableDocuments() {
+  return parseResponse<{ documents: ReusableDocument[] }>(
+    await authFetch("/api/documents?reusable=1", {
+      method: "GET",
+    })
+  );
+}
+
+export interface DocumentDetail {
+  id: string;
+  kind: "resume" | "jd" | "general";
+  title: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  parsedText: string;
+  parseStatus: string;
+  parseError: string | null;
+  updatedAt: string;
+}
+
+export async function requestDocumentDetail(id: string) {
+  return parseResponse<{ document: DocumentDetail }>(
+    await authFetch(`/api/documents/${id}`, {
+      method: "GET",
+    })
+  );
+}
+
+export async function uploadDocument(input: { file: File; kind: "resume" | "jd" | "general"; title?: string }) {
+  const form = new FormData();
+  form.set("file", input.file);
+  form.set("kind", input.kind);
+  if (input.title) form.set("title", input.title);
+
+  return parseResponse<{ document: DocumentDetail }>(
+    await authFetch("/api/documents", {
+      method: "POST",
+      body: form,
+    })
+  );
+}
+
+export async function renameDocument(id: string, title: string) {
+  return parseResponse<{ document: DocumentDetail }>(
+    await authFetch(`/api/documents/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    })
+  );
+}
+
+export async function deleteDocument(id: string) {
+  return parseResponse<{ ok: boolean }>(
+    await authFetch(`/api/documents/${id}`, {
+      method: "DELETE",
     })
   );
 }
@@ -268,7 +402,7 @@ export interface StoryCard {
 
 export async function requestStories() {
   return parseResponse<{ stories: StoryCard[] }>(
-    await fetch("/api/stories", {
+    await authFetch("/api/stories", {
       method: "GET",
     })
   );
@@ -276,7 +410,7 @@ export async function requestStories() {
 
 export async function generateStories() {
   return parseResponse<{ stories: StoryCard[] }>(
-    await fetch("/api/stories", {
+    await authFetch("/api/stories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "generate" }),
@@ -286,10 +420,18 @@ export async function generateStories() {
 
 export async function saveStory(input: Partial<StoryCard>) {
   return parseResponse<{ story: StoryCard }>(
-    await fetch("/api/stories", {
+    await authFetch("/api/stories", {
       method: input.id ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+    })
+  );
+}
+
+export async function deleteStory(id: string) {
+  return parseResponse<{ ok: boolean }>(
+    await authFetch(`/api/stories?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
     })
   );
 }
@@ -309,7 +451,7 @@ export interface QuestionItem {
 
 export async function requestQuestions() {
   return parseResponse<{ questions: QuestionItem[] }>(
-    await fetch("/api/questions", {
+    await authFetch("/api/questions", {
       method: "GET",
     })
   );
@@ -317,7 +459,7 @@ export async function requestQuestions() {
 
 export async function generateQuestions() {
   return parseResponse<{ questions: QuestionItem[] }>(
-    await fetch("/api/questions", {
+    await authFetch("/api/questions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "generate" }),
@@ -341,7 +483,7 @@ export interface FullReviewResult {
 
 export async function requestSessionReview(sessionId: string) {
   return parseResponse<{ review: FullReviewResult }>(
-    await fetch("/api/interview/review", {
+    await authFetch("/api/interview/review", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId }),
@@ -361,9 +503,46 @@ export interface ModelConfig {
   warning: string | null;
 }
 
+export interface UserPreferences {
+  interviewStyle: "friendly" | "logic" | "challenge";
+  interviewLanguage: "zh-CN" | "en-US" | "mixed";
+  pressureMode: boolean;
+  notificationsEnabled: boolean;
+  reminderEnabled: boolean;
+  weeklyReviewEnabled: boolean;
+  updatedAt: string;
+}
+
+export interface SettingsUserProfile {
+  id: string;
+  email: string | null;
+  name: string | null;
+}
+
+export async function requestUserPreferences() {
+  return parseResponse<{ user: SettingsUserProfile; preferences: UserPreferences }>(
+    await authFetch("/api/settings/preferences", {
+      method: "GET",
+    })
+  );
+}
+
+export async function saveUserPreferences(input: {
+  name?: string;
+  preferences: Partial<Omit<UserPreferences, "updatedAt">>;
+}) {
+  return parseResponse<{ user: SettingsUserProfile; preferences: UserPreferences }>(
+    await authFetch("/api/settings/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    })
+  );
+}
+
 export async function requestModelConfig() {
   return parseResponse<{ config: ModelConfig | null }>(
-    await fetch("/api/settings/model-config", {
+    await authFetch("/api/settings/model-config", {
       method: "GET",
     })
   );
@@ -376,7 +555,7 @@ export async function saveModelConfig(input: {
   apiKey?: string;
 }) {
   return parseResponse<{ config: ModelConfig }>(
-    await fetch("/api/settings/model-config", {
+    await authFetch("/api/settings/model-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -391,7 +570,7 @@ export async function testModelConfig(input: {
   apiKey?: string;
 }) {
   return parseResponse<{ ok: boolean; message?: string; error?: string }>(
-    await fetch("/api/settings/test-model", {
+    await authFetch("/api/settings/test-model", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),

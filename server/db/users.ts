@@ -15,7 +15,17 @@ export async function upsertUserFromSupabase(authUser: SupabaseUser): Promise<Cu
   return prisma.user.upsert({
     where: { id },
     create: { id, email, name },
-    update: { email, name },
+    update: { email },
+    select: { id: true, email: true, name: true },
+  });
+}
+
+export async function updateUserProfile(userId: string, input: { name?: string }) {
+  const name = input.name?.trim().slice(0, 80) || null;
+
+  return prisma.user.update({
+    where: { id: userId },
+    data: { name },
     select: { id: true, email: true, name: true },
   });
 }

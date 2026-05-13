@@ -103,6 +103,14 @@ export async function updateStory(userId: string, id: string, input: Partial<Sto
   return toStoryCard(updated);
 }
 
+export async function deleteStory(userId: string, id: string) {
+  const existing = await prisma.story.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!existing) throw new Error("Story not found.");
+
+  await prisma.story.delete({ where: { id } });
+  return { ok: true };
+}
+
 async function collectStorySource(userId: string) {
   const [resumes, messages, reviews] = await Promise.all([
     prisma.resume.findMany({

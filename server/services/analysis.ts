@@ -45,26 +45,33 @@ function normalizeAnalysisResult(result: Record<string, any>, roleTrack: string,
   const capabilityAnalysis = result.capabilityAnalysis || {};
   const interviewPreparation = result.interviewPreparation || {};
 
-  const strengths = arrayOrFallback(
+  const strengths = compactTextList(
+    arrayOrFallback(
     result.strengths,
     capabilityAnalysis.matched?.map((item: any) => item.interviewSellingPoint || item.whyMatched || item.resumeEvidence),
     result.candidateProfile?.coreSkills,
     fallback.strengths
+    )
   );
 
-  const weaknesses = arrayOrFallback(
+  const weaknesses = compactTextList(
+    arrayOrFallback(
     result.weaknesses,
     capabilityAnalysis.missing?.map((item: any) => item.gapDescription || item.jdRequirement),
     capabilityAnalysis.partial?.map((item: any) => item.gap || item.jdRequirement),
     result.candidateProfile?.potentialRisks,
     fallback.weaknesses
+    ),
+    { dropGenericPrefixes: true }
   );
 
-  const predictedQuestions = arrayOrFallback(
+  const predictedQuestions = compactTextList(
+    arrayOrFallback(
     result.predictedQuestions,
     interviewPreparation.likelyQuestions?.map((item: any) => item.question),
     result.suggestedQuestions?.map((item: any) => item.question),
     fallback.predictedQuestions
+    )
   );
 
   const trainingPlan =
@@ -95,4 +102,26 @@ function arrayOrFallback(...values: any[]) {
   }
 
   return [];
+}
+
+function compactTextList(items: string[], options?: { dropGenericPrefixes?: boolean }) {
+  const normalized = items
+    .map((item) => item.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((item) => {
+      if (!options?.dropGenericPrefixes) return true;
+      return item !== "简历未体现" && item !== "未体现";
+    });
+
+  const unique = normalized.filter((item, index, list) => {
+    const sameIndex = list.findIndex((candidate) => candidate === item);
+    if (sameIndex !== index) return false;
+
+    return !list.some((candidate, candidateIndex) => {
+      if (candidateIndex === index) return false;
+      return candidate.length > item.length && candidate.includes(item);
+    });
+  });
+
+  return unique;
 }

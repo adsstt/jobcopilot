@@ -15,10 +15,29 @@ model User {
   updatedAt DateTime @updatedAt
 
   interviewSessions InterviewSession[]
+  documentAssets    DocumentAsset[]
   resumes           Resume[]
   stories           Story[]
   reviews           Review[]
   modelConfigs      UserModelConfig[]
+  preference        UserPreference?
+}
+
+model UserPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  interviewStyle        String   @default("friendly")
+  interviewLanguage     String   @default("zh-CN")
+  pressureMode          Boolean  @default(false)
+  notificationsEnabled  Boolean  @default(true)
+  reminderEnabled       Boolean  @default(true)
+  weeklyReviewEnabled   Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 model UserModelConfig {
@@ -51,6 +70,28 @@ model Resume {
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   interviewSessions InterviewSession[]
 
+  @@index([userId, updatedAt])
+}
+
+model DocumentAsset {
+  id            String   @id @default(cuid())
+  userId        String
+  kind          String
+  title         String
+  fileName      String
+  mimeType      String
+  fileSize      Int
+  storageBucket String
+  storageKey    String
+  parsedText    String   @default("")
+  parseStatus   String   @default("parsed")
+  parseError    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, updatedAt])
   @@index([userId, updatedAt])
 }
 

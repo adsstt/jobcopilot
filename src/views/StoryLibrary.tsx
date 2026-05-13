@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Card, Button } from "@/components/ui";
-import { generateStories, requestStories, saveStory, type StoryCard } from "@/lib/api";
-import { Plus, Tag, RefreshCw, Star, Save, Pencil } from "lucide-react";
+import { deleteStory, generateStories, requestStories, saveStory, type StoryCard } from "@/lib/api";
+import { Plus, Tag, RefreshCw, Star, Save, Pencil, Trash2 } from "lucide-react";
 import * as motion from "motion/react-client";
 
 const emptyStory: StoryCard = {
@@ -25,6 +25,7 @@ export function StoryLibrary() {
   const [draft, setDraft] = useState<StoryCard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -77,6 +78,26 @@ export function StoryLibrary() {
     }
   };
 
+  const removeStory = async (story: StoryCard) => {
+    const confirmed = window.confirm(`确认删除「${story.title}」吗？删除后不可恢复。`);
+    if (!confirmed) return;
+
+    setDeletingId(story.id);
+    setError("");
+    try {
+      await deleteStory(story.id);
+      setStories((current) => current.filter((item) => item.id !== story.id));
+      if (editingId === story.id) {
+        setEditingId(null);
+        setDraft(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "故事删除失败");
+    } finally {
+      setDeletingId("");
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex min-w-0 flex-col gap-8">
       <header className="flex min-w-0 flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -117,7 +138,13 @@ export function StoryLibrary() {
           editingId === story.id && draft ? (
             <StoryEditor key={story.id} story={draft} onChange={setDraft} onSave={saveDraft} onCancel={() => setEditingId(null)} />
           ) : (
-            <StoryCardView key={story.id} story={story} onEdit={() => startEdit(story)} />
+            <StoryCardView
+              key={story.id}
+              story={story}
+              isDeleting={deletingId === story.id}
+              onEdit={() => startEdit(story)}
+              onDelete={() => void removeStory(story)}
+            />
           )
         )}
       </div>
@@ -125,7 +152,17 @@ export function StoryLibrary() {
   );
 }
 
-function StoryCardView({ story, onEdit }: { story: StoryCard; onEdit: () => void }) {
+function StoryCardView({
+  story,
+  isDeleting,
+  onEdit,
+  onDelete,
+}: {
+  story: StoryCard;
+  isDeleting: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
     <Card className="min-w-0 p-5 transition-all hover:shadow-md sm:p-6">
       <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -143,6 +180,9 @@ function StoryCardView({ story, onEdit }: { story: StoryCard; onEdit: () => void
           )}
           <Button variant="outline" size="sm" className="gap-2" onClick={onEdit}>
             <Pencil size={15} /> 编辑
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2 text-rose-600 hover:border-rose-200 hover:bg-rose-50" onClick={onDelete} disabled={isDeleting}>
+            <Trash2 size={15} /> {isDeleting ? "删除中" : "删除"}
           </Button>
         </div>
       </div>

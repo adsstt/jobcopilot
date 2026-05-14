@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import formidable, { type File } from "formidable";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 import { badRequest } from "../apiErrors";
 
 export interface ParsedUpload {
@@ -64,14 +63,7 @@ async function extractText(buffer: Buffer, mimetype: string, filename: string) {
   assertSupportedDocument(mimetype, filename);
 
   if (mimetype.includes("pdf") || filename.toLowerCase().endsWith(".pdf")) {
-    PDFParse.setWorker(getPdfWorkerSrc());
-    const parser = new PDFParse({ data: buffer });
-    try {
-      const result = await parser.getText();
-      return requireText(result.text);
-    } finally {
-      await parser.destroy();
-    }
+    return extractPdfText(buffer);
   }
 
   if (
@@ -87,6 +79,106 @@ async function extractText(buffer: Buffer, mimetype: string, filename: string) {
   }
 
   throw badRequest("Unsupported document type.", "当前仅支持 PDF、DOCX、TXT 文件", "UNSUPPORTED_DOCUMENT_TYPE");
+}
+
+async function extractPdfText(buffer: Buffer) {
+  await ensurePdfDomPolyfills();
+
+  const { PDFParse } = await import("pdf-parse");
+  PDFParse.setWorker(getPdfWorkerSrc());
+
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return requireText(result.text);
+  } finally {
+    await parser.destroy();
+  }
+}
+
+async function ensurePdfDomPolyfills() {
+  const globalScope = globalThis as Record<string, unknown>;
+
+  globalScope.DOMMatrix ??= SimpleDOMMatrix;
+}
+
+class SimpleDOMMatrix {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+
+  constructor(init?: string | number[] | Float32Array | Float64Array) {
+    const values = Array.isArray(init) || ArrayBuffer.isView(init) ? Array.from(init as ArrayLike<number>) : null;
+    this.a = values?.[0] ?? 1;
+    this.b = values?.[1] ?? 0;
+    this.c = values?.[2] ?? 0;
+    this.d = values?.[3] ?? 1;
+    this.e = values?.[4] ?? 0;
+    this.f = values?.[5] ?? 0;
+  }
+
+  static fromFloat32Array(array32: Float32Array) {
+    return new SimpleDOMMatrix(array32);
+  }
+
+  static fromFloat64Array(array64: Float64Array) {
+    return new SimpleDOMMatrix(array64);
+  }
+
+  static fromMatrix(other?: { a?: number; b?: number; c?: number; d?: number; e?: number; f?: number }) {
+    return new SimpleDOMMatrix([other?.a ?? 1, other?.b ?? 0, other?.c ?? 0, other?.d ?? 1, other?.e ?? 0, other?.f ?? 0]);
+  }
+
+  translate(tx = 0, ty = 0) {
+    return new SimpleDOMMatrix([this.a, this.b, this.c, this.d, this.e + tx, this.f + ty]);
+  }
+
+  scale(scaleX = 1, scaleY = scaleX) {
+    return new SimpleDOMMatrix([this.a * scaleX, this.b * scaleX, this.c * scaleY, this.d * scaleY, this.e, this.f]);
+  }
+
+  multiplySelf(other: SimpleDOMMatrix) {
+    const result = multiplyMatrices(this, other);
+    Object.assign(this, result);
+    return this;
+  }
+
+  preMultiplySelf(other: SimpleDOMMatrix) {
+    const result = multiplyMatrices(other, this);
+    Object.assign(this, result);
+    return this;
+  }
+
+  invertSelf() {
+    const determinant = this.a * this.d - this.b * this.c;
+    if (!determinant) {
+      this.a = this.b = this.c = this.d = this.e = this.f = NaN;
+      return this;
+    }
+
+    const { a, b, c, d, e, f } = this;
+    this.a = d / determinant;
+    this.b = -b / determinant;
+    this.c = -c / determinant;
+    this.d = a / determinant;
+    this.e = (c * f - d * e) / determinant;
+    this.f = (b * e - a * f) / determinant;
+    return this;
+  }
+}
+
+function multiplyMatrices(left: SimpleDOMMatrix, right: SimpleDOMMatrix) {
+  return {
+    a: left.a * right.a + left.c * right.b,
+    b: left.b * right.a + left.d * right.b,
+    c: left.a * right.c + left.c * right.d,
+    d: left.b * right.c + left.d * right.d,
+    e: left.a * right.e + left.c * right.f + left.e,
+    f: left.b * right.e + left.d * right.f + left.f,
+  };
 }
 
 export function assertSupportedDocument(mimetype: string, filename: string) {

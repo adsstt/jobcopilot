@@ -20,8 +20,8 @@ export async function createDocumentAsset(input: CreateDocumentAssetInput) {
   try {
     return await prisma.documentAsset.create({
       data: {
-        userId: input.userId,
         id: input.id,
+        userId: input.userId,
         kind: input.kind,
         title: input.title,
         fileName: input.fileName,
@@ -46,42 +46,10 @@ export async function createDocumentAsset(input: CreateDocumentAssetInput) {
 }
 
 export async function listUserDocuments(userId: string) {
-  const [assets, resumes, sessionsWithJd] = await Promise.all([
-    listDocumentAssetsSafe(userId),
-    prisma.resume.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        title: true,
-        fileName: true,
-        mimeType: true,
-        rawText: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.interviewSession.findMany({
-      where: {
-        userId,
-        jdText: { not: "" },
-      },
-      orderBy: { updatedAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        title: true,
-        roleTrack: true,
-        jdText: true,
-        status: true,
-        analysis: true,
-        updatedAt: true,
-      },
-    }),
-  ]);
+  const assets = await listDocumentAssetsSafe(userId);
 
-  return [
-    ...assets.map((asset) => ({
+  return assets
+    .map((asset) => ({
       id: asset.id,
       source: "asset" as const,
       kind: asset.kind,
@@ -96,40 +64,8 @@ export async function listUserDocuments(userId: string) {
       textSize: formatTextSize(asset.parsedText),
       canView: true,
       canDownload: true,
-    })),
-    ...resumes.map((resume) => ({
-      id: resume.id,
-      source: "legacyResume" as const,
-      kind: "resume" as const,
-      type: "简历",
-      title: cleanTitle(resume.fileName || resume.title || "简历资料"),
-      fileName: resume.fileName,
-      mimeType: resume.mimeType,
-      track: "历史记录",
-      status: resume.mimeType ? "历史简历" : "文本",
-      updated: resume.updatedAt.toISOString(),
-      size: formatTextSize(resume.rawText),
-      textSize: formatTextSize(resume.rawText),
-      canView: false,
-      canDownload: false,
-    })),
-    ...sessionsWithJd.map((session) => ({
-      id: session.id,
-      source: "legacyJd" as const,
-      kind: "jd" as const,
-      type: "JD",
-      title: buildJdTitle(session),
-      fileName: null,
-      mimeType: null,
-      track: cleanTitle(session.roleTrack || "岗位方向"),
-      status: session.status === "analyzed" ? "历史 JD" : "已关联",
-      updated: session.updatedAt.toISOString(),
-      size: formatTextSize(session.jdText),
-      textSize: formatTextSize(session.jdText),
-      canView: false,
-      canDownload: false,
-    })),
-  ].sort((left, right) => new Date(right.updated).getTime() - new Date(left.updated).getTime());
+    }))
+    .sort((left, right) => new Date(right.updated).getTime() - new Date(left.updated).getTime());
 }
 
 export async function listReusableDocumentAssets(userId: string) {
@@ -280,17 +216,6 @@ function kindLabel(kind: string) {
   if (kind === "resume") return "简历";
   if (kind === "jd") return "JD";
   return "资料";
-}
-
-function buildJdTitle(session: { roleTrack: string; title: string; analysis: unknown }) {
-  const jdAnalysis = (session.analysis as any)?.jdAnalysis;
-  const companyName = cleanTitle(jdAnalysis?.companyName || "");
-  const jobTitle = cleanTitle(jdAnalysis?.jobTitle || "");
-
-  if (jobTitle && companyName && companyName !== "未明确") return `${companyName} · ${jobTitle} JD`;
-  if (jobTitle && jobTitle !== "未明确") return `${jobTitle} JD`;
-
-  return `${cleanTitle(session.roleTrack || session.title || "目标岗位")} JD`;
 }
 
 function cleanTitle(value: string) {
